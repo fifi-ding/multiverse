@@ -289,7 +289,7 @@ app.title = "Multiverse Dashboard"
 
 
 # Add state to track which profile's grid is currently displayed
-current_grid_profile = 1  # 1 for Profile 1, 2 for Profile 2, 3 for Cross Comparison
+current_grid_profile = 1  # 1 for Profile 1, 2 for Profile 2
 
 def create_layout():
     """Create the main layout of the dashboard"""
@@ -590,20 +590,6 @@ def create_layout():
                                 style={
                                     'fontSize': '14px',
                                     'padding': '8px 16px',
-                                    'marginRight': '10px',
-                                    'backgroundColor': '#6c757d',
-                                    'color': 'white',
-                                    'border': 'none',
-                                    'borderRadius': '5px',
-                                    'cursor': 'pointer'
-                                }
-                            ),
-                            html.Button(
-                                "Cross Comparison",
-                                id='toggle-profile-3',
-                                style={
-                                    'fontSize': '14px',
-                                    'padding': '8px 16px',
                                     'backgroundColor': '#6c757d',
                                     'color': 'white',
                                     'border': 'none',
@@ -615,7 +601,7 @@ def create_layout():
                         
                         # Instructions
                         html.P(
-                            "Click on a profile button above to view its specification grid. Use 'Cross Comparison' to compare selected universes from both profiles side by side.",
+                            "Click on a profile button above to view its specification grid. The grid will show the procedural choices for all universes in that profile.",
                             style={
                                 'fontSize': '12px',
                                 'color': '#666',
@@ -625,7 +611,7 @@ def create_layout():
                             }
                         ),
                         html.P(
-                            "💡 Tip: Drag to select universes in the specification curves above to filter the grid view. The grid will automatically switch to show the selected profile. Use 'Cross Comparison' to see selected universes from both profiles together.",
+                            "💡 Tip: Drag to select universes in the specification curves above to filter the grid view. The grid will automatically switch to show the selected profile. You can also click the profile buttons to manually switch between grids.",
                             style={
                                 'fontSize': '11px',
                                 'color': '#28a745',
@@ -968,232 +954,6 @@ def create_specification_grid(df, profile_num, selected_universes=None):
     
     return fig
 
-def create_cross_comparison_grid(df1, df2, selected_1=None, selected_2=None):
-    """Create a cross-comparison grid showing both profiles side by side with their selected universes"""
-    # Check if dataframes are empty
-    if df1.empty or df2.empty:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No analysis data available.<br>Click 'Run Multiverse Analysis' to generate results.",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, xanchor='center', yanchor='middle',
-            showarrow=False, font=dict(size=16, color='gray')
-        )
-        fig.update_layout(
-            title='Cross Comparison - No Data Available',
-            height=500,
-            showlegend=False
-        )
-        return fig
-    
-    # Sort both dataframes by recidivism probability
-    df1_sorted = df1.sort_values('recidivism_prob')
-    df2_sorted = df2.sort_values('recidivism_prob')
-    
-    # Filter based on selected universes if provided
-    if selected_1 is not None and len(selected_1) > 0:
-        try:
-            selected_universe_ids_1 = [df1_sorted.index[i] for i in selected_1 if isinstance(i, int) and i < len(df1_sorted)]
-            if selected_universe_ids_1:
-                df1_display = df1_sorted.loc[selected_universe_ids_1]
-                title_suffix_1 = f" - {len(selected_universe_ids_1)} Selected"
-            else:
-                df1_display = df1_sorted
-                title_suffix_1 = " - All Universes"
-        except (IndexError, KeyError, TypeError):
-            df1_display = df1_sorted
-            title_suffix_1 = " - All Universes"
-    else:
-        df1_display = df1_sorted
-        title_suffix_1 = " - All Universes"
-    
-    if selected_2 is not None and len(selected_2) > 0:
-        try:
-            selected_universe_ids_2 = [df2_sorted.index[i] for i in selected_2 if isinstance(i, int) and i < len(df2_sorted)]
-            if selected_universe_ids_2:
-                df2_display = df2_sorted.loc[selected_universe_ids_2]
-                title_suffix_2 = f" - {len(selected_universe_ids_2)} Selected"
-            else:
-                df2_display = df2_sorted
-                title_suffix_2 = " - All Universes"
-        except (IndexError, KeyError, TypeError):
-            df2_display = df2_sorted
-            title_suffix_2 = " - All Universes"
-    else:
-        df2_display = df2_sorted
-        title_suffix_2 = " - All Universes"
-    
-    # Define procedural choices and their options
-    procedural_choices = [
-        ('define_recid_method', ['5yr', '4yr', '3yr', '2yr', '1yr']),
-        ('predictor_method', ['protected', 'final', 'full']),
-        ('imbalancing_method', ['Female Only', 'Male Only', 'Oversampling', 'Undersampling', 'Weighting']),
-        ('age_category', ['age_cat_nij', 'age_cat_compas', 'raw_age_year']),
-        ('split', ['8:2', '7:3', '6:4', '1:2']),
-        ('preprocessing', ['Method_C', 'Method_B', 'Method_A'])
-    ]
-    
-    # Create the grid data matrix for both profiles
-    grid_data_1 = []
-    grid_data_2 = []
-    y_labels = []
-    
-    # Process each procedural choice
-    for choice_name, options in procedural_choices:
-        column_display_name = choice_name.replace('_', ' ').title()
-        
-        # Add options for this category
-        for option in options:
-            y_labels.append(f"    {option}")
-            
-            # Profile 1 row
-            row_1 = []
-            for _, row_data in df1_display.iterrows():
-                if choice_name == 'define_recid_method':
-                    selected = row_data['define_recid_method'] == option
-                elif choice_name == 'predictor_method':
-                    selected = row_data['predictor_method'] == option
-                elif choice_name == 'imbalancing_method':
-                    selected = row_data['imbalancing_method'] == option
-                elif choice_name == 'age_category':
-                    selected = row_data['age_category'] == option
-                elif choice_name == 'split':
-                    selected = row_data['split'] == option
-                elif choice_name == 'preprocessing':
-                    selected = row_data['preprocessing'] == option
-                else:
-                    selected = False
-                
-                row_1.append(1 if selected else 0.5)
-            
-            # Profile 2 row
-            row_2 = []
-            for _, row_data in df2_display.iterrows():
-                if choice_name == 'define_recid_method':
-                    selected = row_data['define_recid_method'] == option
-                elif choice_name == 'predictor_method':
-                    selected = row_data['predictor_method'] == option
-                elif choice_name == 'imbalancing_method':
-                    selected = row_data['imbalancing_method'] == option
-                elif choice_name == 'age_category':
-                    selected = row_data['age_category'] == option
-                elif choice_name == 'split':
-                    selected = row_data['split'] == option
-                elif choice_name == 'preprocessing':
-                    selected = row_data['preprocessing'] == option
-                else:
-                    selected = False
-                
-                row_2.append(1 if selected else 0.5)
-            
-            grid_data_1.append(row_1)
-            grid_data_2.append(row_2)
-        
-        # Add category header
-        y_labels.append(f"📋 {column_display_name}")
-        header_row_1 = [0] * len(df1_display)
-        header_row_2 = [0] * len(df2_display)
-        grid_data_1.append(header_row_1)
-        grid_data_2.append(header_row_2)
-    
-    # Create subplot with two heatmaps side by side
-    from plotly.subplots import make_subplots
-    
-    fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=(f"Focal Profile{title_suffix_1}", f"Counterfactual Profile{title_suffix_2}"),
-        horizontal_spacing=0.1
-    )
-    
-    # Add Profile 1 heatmap
-    fig.add_trace(go.Heatmap(
-        z=grid_data_1,
-        x=list(range(len(df1_display))),
-        y=y_labels,
-        colorscale=[
-            [0, '#e9ecef'],    # Gray for headers
-            [0.5, '#ffffff'],  # White for unselected
-            [1, '#d63384']     # Pink for Profile 1
-        ],
-        showscale=False,
-        hoverongaps=False,
-        hoverinfo='z',
-        zmin=0,
-        zmax=1
-    ), row=1, col=1)
-    
-    # Add Profile 2 heatmap
-    fig.add_trace(go.Heatmap(
-        z=grid_data_2,
-        x=list(range(len(df2_display))),
-        y=y_labels,
-        colorscale=[
-            [0, '#e9ecef'],    # Gray for headers
-            [0.5, '#ffffff'],  # White for unselected
-            [1, '#0d6efd']     # Blue for Profile 2
-        ],
-        showscale=False,
-        hoverongaps=False,
-        hoverinfo='z',
-        zmin=0,
-        zmax=1
-    ), row=1, col=2)
-    
-    # Update layout
-    fig.update_layout(
-        title='Cross Comparison: Selected Universes from Both Profiles',
-        height=500,
-        showlegend=False,
-        yaxis=dict(
-            tickmode='array',
-            tickvals=list(range(len(y_labels))),
-            ticktext=y_labels,
-            tickfont=dict(size=10)
-        ),
-        yaxis2=dict(
-            tickmode='array',
-            tickvals=list(range(len(y_labels))),
-            ticktext=y_labels,
-            tickfont=dict(size=10)
-        )
-    )
-    
-    # Update x-axes
-    if len(df1_display.index) <= 20:
-        fig.update_xaxes(
-            tickmode='array',
-            tickvals=list(range(len(df1_display))),
-            ticktext=[f"U{df1_display.index[i]}" for i in range(len(df1_display))],
-            row=1, col=1
-        )
-    else:
-        step = max(1, len(df1_display.index) // 10)
-        selected_positions = list(range(0, len(df1_display), step))
-        fig.update_xaxes(
-            tickmode='array',
-            tickvals=selected_positions,
-            ticktext=[f"U{df1_display.index[i]}" for i in selected_positions],
-            row=1, col=1
-        )
-    
-    if len(df2_display.index) <= 20:
-        fig.update_xaxes(
-            tickmode='array',
-            tickvals=list(range(len(df2_display))),
-            ticktext=[f"U{df2_display.index[i]}" for i in range(len(df2_display))],
-            row=1, col=2
-        )
-    else:
-        step = max(1, len(df2_display.index) // 10)
-        selected_positions = list(range(0, len(df2_display), step))
-        fig.update_xaxes(
-            tickmode='array',
-            tickvals=selected_positions,
-            ticktext=[f"U{df2_display.index[i]}" for i in selected_positions],
-            row=1, col=2
-        )
-    
-    return fig
 
 
 def get_profile_summary(profile):
@@ -1513,7 +1273,6 @@ def get_universe_details(df, profile, profile_num):
     Output('selected-universes-1', 'children'),
     Output('toggle-profile-1', 'style', allow_duplicate=True),
     Output('toggle-profile-2', 'style', allow_duplicate=True),
-    Output('toggle-profile-3', 'style', allow_duplicate=True),
     Input('spec-curve-1', 'selectedData'),
     prevent_initial_call=True
 )
@@ -1556,25 +1315,13 @@ def update_selected_universes_1(selected_data):
         'fontWeight': 'bold' if current_grid_profile == 2 else 'normal'
     }
     
-    profile3_style = {
-        'fontSize': '14px',
-        'padding': '8px 16px',
-        'backgroundColor': '#28a745' if current_grid_profile == 3 else '#6c757d',
-        'color': 'white',
-        'border': 'none',
-        'borderRadius': '5px',
-        'cursor': 'pointer',
-        'fontWeight': 'bold' if current_grid_profile == 3 else 'normal'
-    }
-    
-    return selected_indices, profile1_style, profile2_style, profile3_style
+    return selected_indices, profile1_style, profile2_style
 
 # Callback to handle selection events from specification curve 2
 @app.callback(
     Output('selected-universes-2', 'children'),
     Output('toggle-profile-1', 'style', allow_duplicate=True),
     Output('toggle-profile-2', 'style', allow_duplicate=True),
-    Output('toggle-profile-3', 'style', allow_duplicate=True),
     Input('spec-curve-2', 'selectedData'),
     prevent_initial_call=True
 )
@@ -1617,30 +1364,17 @@ def update_selected_universes_2(selected_data):
         'fontWeight': 'bold' if current_grid_profile == 2 else 'normal'
     }
     
-    profile3_style = {
-        'fontSize': '14px',
-        'padding': '8px 16px',
-        'backgroundColor': '#28a745' if current_grid_profile == 3 else '#6c757d',
-        'color': 'white',
-        'border': 'none',
-        'borderRadius': '5px',
-        'cursor': 'pointer',
-        'fontWeight': 'bold' if current_grid_profile == 3 else 'normal'
-    }
-    
-    return selected_indices, profile1_style, profile2_style, profile3_style
+    return selected_indices, profile1_style, profile2_style
 
 # Combined callback to handle both initialization and toggle functionality
 @app.callback(
     Output('toggle-profile-1', 'style'),
     Output('toggle-profile-2', 'style'),
-    Output('toggle-profile-3', 'style'),
     Input('dummy-input', 'value'),
     Input('toggle-profile-1', 'n_clicks'),
-    Input('toggle-profile-2', 'n_clicks'),
-    Input('toggle-profile-3', 'n_clicks')
+    Input('toggle-profile-2', 'n_clicks')
 )
-def handle_button_styles(dummy_value, n_clicks_1, n_clicks_2, n_clicks_3):
+def handle_button_styles(dummy_value, n_clicks_1, n_clicks_2):
     global current_grid_profile
     
     # Determine which input triggered the callback
@@ -1654,8 +1388,6 @@ def handle_button_styles(dummy_value, n_clicks_1, n_clicks_2, n_clicks_3):
             current_grid_profile = 1
         elif trigger_id == 'toggle-profile-2':
             current_grid_profile = 2
-        elif trigger_id == 'toggle-profile-3':
-            current_grid_profile = 3
     
     # Update button styles based on current selection
     profile1_style = {
@@ -1681,18 +1413,7 @@ def handle_button_styles(dummy_value, n_clicks_1, n_clicks_2, n_clicks_3):
         'fontWeight': 'bold' if current_grid_profile == 2 else 'normal'
     }
     
-    profile3_style = {
-        'fontSize': '14px',
-        'padding': '8px 16px',
-        'backgroundColor': '#28a745' if current_grid_profile == 3 else '#6c757d',
-        'color': 'white',
-        'border': 'none',
-        'borderRadius': '5px',
-        'cursor': 'pointer',
-        'fontWeight': 'bold' if current_grid_profile == 3 else 'normal'
-    }
-    
-    return profile1_style, profile2_style, profile3_style
+    return profile1_style, profile2_style
 
 # Global variables to store progress updates
 progress_updates = {"focal": [], "counterfactual": []}
@@ -1810,7 +1531,6 @@ def update_progress_bars(n_intervals):
     Input('submit-profiles-button', 'n_clicks'),
     Input('toggle-profile-1', 'n_clicks'),
     Input('toggle-profile-2', 'n_clicks'),
-    Input('toggle-profile-3', 'n_clicks'),
     Input('selected-universes-1', 'children'),
     Input('selected-universes-2', 'children'),
     State('age-slider-1', 'value'),
@@ -1820,7 +1540,7 @@ def update_progress_bars(n_intervals):
     State('gender-dropdown-2', 'value'),
     State('race-dropdown-2', 'value')
 )
-def update_dashboard(submit_clicks, toggle_1, toggle_2, toggle_3, selected_1, selected_2,
+def update_dashboard(submit_clicks, toggle_1, toggle_2, selected_1, selected_2,
                     age_1, gender_1, race_1, age_2, gender_2, race_2):
     global current_grid_profile
     
@@ -1840,7 +1560,7 @@ def update_dashboard(submit_clicks, toggle_1, toggle_2, toggle_3, selected_1, se
         if ctx.triggered:
             trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
             # Only proceed if submit button was clicked, or if it's grid toggle events, or selection events
-            if trigger_id not in ['submit-profiles-button', 'toggle-profile-1', 'toggle-profile-2', 'toggle-profile-3', 'selected-universes-1', 'selected-universes-2']:
+            if trigger_id not in ['submit-profiles-button', 'toggle-profile-1', 'toggle-profile-2', 'selected-universes-1', 'selected-universes-2']:
                 # Return current state without updating if other inputs changed
                 raise dash.exceptions.PreventUpdate
             
@@ -1900,7 +1620,7 @@ def update_dashboard(submit_clicks, toggle_1, toggle_2, toggle_3, selected_1, se
             variable_importance_title = "Focal Variable Importance"
             variable_importance_title_style = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
             variable_importance_content = get_variable_importance_display(df_nc, profile1, 1)
-        elif current_grid_profile == 2:
+        else:
             # Use selected universes from profile 2 if available
             selected_universes = selected_2 if selected_2 is not None else []
             combined_spec_grid = create_specification_grid(df_low_risk, 2, selected_universes)
@@ -1910,29 +1630,6 @@ def update_dashboard(submit_clicks, toggle_1, toggle_2, toggle_3, selected_1, se
             variable_importance_title = "Counterfactual Variable Importance"
             variable_importance_title_style = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
             variable_importance_content = get_variable_importance_display(df_low_risk, profile2, 2)
-        else:  # current_grid_profile == 3 (Cross Comparison)
-            # Create cross comparison grid showing both profiles
-            combined_spec_grid = create_cross_comparison_grid(df_nc, df_low_risk, selected_1, selected_2)
-            universe_card_title = "Cross Comparison Details"
-            universe_card_title_style = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#28a745', 'fontSize': '14px'}
-            # Create combined universe content for cross comparison
-            combined_universe_content = html.Div([
-                html.H5("Focal Profile", style={'color': '#d63384', 'marginTop': '0', 'marginBottom': '10px'}),
-                get_universe_details(df_nc, profile1, 1),
-                html.Hr(style={'margin': '15px 0'}),
-                html.H5("Counterfactual Profile", style={'color': '#0d6efd', 'marginTop': '15px', 'marginBottom': '10px'}),
-                get_universe_details(df_low_risk, profile2, 2)
-            ])
-            variable_importance_title = "Cross Comparison Analysis"
-            variable_importance_title_style = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#28a745', 'fontSize': '14px'}
-            # Create combined variable importance content for cross comparison
-            variable_importance_content = html.Div([
-                html.H5("Focal Profile", style={'color': '#d63384', 'marginTop': '0', 'marginBottom': '10px'}),
-                get_variable_importance_display(df_nc, profile1, 1),
-                html.Hr(style={'margin': '15px 0'}),
-                html.H5("Counterfactual Profile", style={'color': '#0d6efd', 'marginTop': '15px', 'marginBottom': '10px'}),
-                get_variable_importance_display(df_low_risk, profile2, 2)
-            ])
     
         profile1_summary = get_profile_summary(profile1)
         profile2_summary = get_profile_summary(profile2)
