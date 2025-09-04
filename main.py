@@ -369,7 +369,7 @@ def create_layout():
                         ], style={'marginBottom': '12px'}),
                         
                         # Add a note that the focal profile is locked
-                        html.P("🔒 This profile is locked for comparison", 
+                        html.P("This profile is locked for comparison", 
                                style={'fontSize': '10px', 'color': '#666', 'textAlign': 'center', 'marginTop': '8px', 'fontStyle': 'italic'})
                         
                     ], style={'flex': '1', 'padding': '12px', 'border': '2px solid #d63384', 'borderRadius': '5px', 'marginRight': '8px', 'backgroundColor': '#fff8fa'}),
@@ -501,6 +501,22 @@ def create_layout():
                     ], style={'marginBottom': '10px'})
                 ], style={'marginBottom': '15px'}),
                 
+                # Dataset Overview Section
+                html.Div([
+                    html.H5("Dataset Overview", style={'textAlign': 'center', 'marginBottom': '10px', 'fontSize': '14px', 'color': '#333'}),
+                    html.Div(
+                        id='dataset-overview-content',
+                        style={
+                            'padding': '8px',
+                            'border': '1px solid #ddd',
+                            'borderRadius': '5px',
+                            'backgroundColor': '#f9f9f9',
+                            'fontSize': '11px',
+                            'color': '#666'
+                        }
+                    )
+                ], style={'marginBottom': '15px'}),
+                
             ], style={
                 'flex': '0 0 400px',
                 'padding': '15px',
@@ -511,11 +527,10 @@ def create_layout():
             
             # Central Charts & Right Cards Container
             html.Div([
-                # Row 1: Profile 1 vs Profile 2 - Specification Curves and Boxplots
+                # Row 1: All Four Components in Horizontal Layout
                 html.Div([
-                    # Profile 1 Specification Curve
+                    # 1. Focal Specification Curve
                     html.Div([
-                        # html.H3("Focal Profile", style={'textAlign': 'center', 'color': '#d63384'}),
                         dcc.Graph(
                             id='spec-curve-1',
                             config={
@@ -524,12 +539,65 @@ def create_layout():
                                 'displaylogo': False
                             }
                         ),
-
                     ], style={'flex': '1.2', 'minWidth': '0'}),
                     
-                    # Profile 2 Specification Curve
+                    # 2. Focal Variable Importance Card
                     html.Div([
-                        # html.H3("Counterfactual Profile", style={'textAlign': 'center', 'color': '#0d6efd'}),
+                        html.H4(
+                            id='variable-importance-title-1',
+                            style={'textAlign': 'center', 'marginBottom': '0px', 'color': '#d63384', 'fontSize': '14px', 'marginTop': '60px'}
+                        ),
+                        html.Div(
+                            id='variable-importance-content-1',
+                            style={
+                                'padding': '6px',
+                                'border': '1px solid #ddd',
+                                'borderRadius': '5px',
+                                'minHeight': '0px',
+                                'maxHeight': '300px',
+                                'backgroundColor': '#f9f9f9',
+                                'overflowY': 'auto'
+                            }
+                        ),
+                        # Focal Profile Radio Button
+                        html.Div([
+                            html.Div([
+                                dcc.RadioItems(
+                                    id='grid-profile-switcher-1',
+                                    options=[{'label': 'Show Focal Grid', 'value': 1}],
+                                    value=1,  # Initially checked
+                                    style={'marginTop': '8px'},
+                                    labelStyle={
+                                        'fontSize': '14px', 
+                                        'color': '#d63384', 
+                                        'fontWeight': 'bold',
+                                        'padding': '10px 16px',
+                                        'borderRadius': '25px',
+                                        'backgroundColor': '#fff0f5',
+                                        'border': '2px solid #d63384',
+                                        'cursor': 'pointer',
+                                        'display': 'inline-block',
+                                        'margin': '0',
+                                        'boxShadow': '0 2px 8px rgba(214, 51, 132, 0.2)',
+                                        'textAlign': 'center',
+                                        'minWidth': '160px'
+                                    },
+                                    inputStyle={
+                                        'marginRight': '10px', 
+                                        'transform': 'scale(1.3)',
+                                        'accentColor': '#d63384'
+                                    }
+                                )
+                            ], style={
+                                'textAlign': 'center', 
+                                'marginTop': '8px',
+                                'padding': '6px'
+                            })
+                        ], style={'textAlign': 'center', 'marginTop': '8px'})
+                    ], style={'flex': '0.6', 'minWidth': '0', 'alignSelf': 'flex-start'}),
+                    
+                    # 3. Counterfactual Specification Curve
+                    html.Div([
                         dcc.Graph(
                             id='spec-curve-2',
                             config={
@@ -538,87 +606,79 @@ def create_layout():
                                 'displaylogo': False
                             }
                         ),
-
                     ], style={'flex': '1.2', 'minWidth': '0'}),
                     
-                    # Variable Importance Card
+                    # 4. Counterfactual Variable Importance Card
                     html.Div([
                         html.H4(
-                            id='variable-importance-title',
-                            style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
+                            id='variable-importance-title-2',
+                            style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px', 'marginTop': '60px'}
                         ),
                         html.Div(
-                            id='variable-importance-content',
+                            id='variable-importance-content-2',
                             style={
-                                'padding': '8px',
+                                'padding': '6px',
                                 'border': '1px solid #ddd',
                                 'borderRadius': '5px',
-                                'minHeight': '400px',
-                                'maxHeight': '400px',
+                                'minHeight': '0px',
+                                'maxHeight': '300px',
                                 'backgroundColor': '#f9f9f9',
                                 'overflowY': 'auto'
                             }
-                        )
+                        ),
+                        # Counterfactual Profile Radio Button
+                        html.Div([
+                            html.Div([
+                                dcc.RadioItems(
+                                    id='grid-profile-switcher-2',
+                                    options=[{'label': 'Show CF Grid', 'value': 2}],
+                                    value=None,  # Initially unchecked
+                                    style={'marginTop': '8px'},
+                                    labelStyle={
+                                        'fontSize': '14px', 
+                                        'color': '#0d6efd', 
+                                        'fontWeight': 'bold',
+                                        'padding': '10px 16px',
+                                        'borderRadius': '25px',
+                                        'backgroundColor': '#f0f8ff',
+                                        'border': '2px solid #0d6efd',
+                                        'cursor': 'pointer',
+                                        'display': 'inline-block',
+                                        'margin': '0',
+                                        'boxShadow': '0 2px 8px rgba(13, 110, 253, 0.2)',
+                                        'textAlign': 'center',
+                                        'minWidth': '160px'
+                                    },
+                                    inputStyle={
+                                        'marginRight': '10px', 
+                                        'transform': 'scale(1.3)',
+                                        'accentColor': '#0d6efd'
+                                    }
+                                )
+                            ], style={
+                                'textAlign': 'center', 
+                                'marginTop': '8px',
+                                'padding': '6px'
+                            })
+                        ], style={'textAlign': 'center', 'marginTop': '8px'})
                     ], style={'flex': '0.6', 'minWidth': '0', 'alignSelf': 'flex-start'}),
                     
-                ], style={'display': 'flex', 'flexDirection': 'row', 'alignItems': 'flex-start', 'gap': '20px', 'marginBottom': '20px'}),
+                ], style={'display': 'flex', 'flexDirection': 'row', 'alignItems': 'flex-start', 'gap': '15px', 'marginBottom': '20px'}),
                 
-                # Row 2: Combined Specification Grid and Universe Cards
+                # Row 2: Combined Specification Grid
                 html.Div([
-                    # Combined Specification Grid with Toggle
+                    # Combined Specification Grid
                     html.Div([
-                        # Toggle buttons for Profile selection
-                        html.Div([
-                            html.Button(
-                                "Focal Profile Grid",
-                                id='toggle-profile-1',
-                                style={
-                                    'fontSize': '14px',
-                                    'padding': '8px 16px',
-                                    'marginRight': '10px',
-                                    'backgroundColor': '#d63384',
-                                    'color': 'white',
-                                    'border': 'none',
-                                    'borderRadius': '5px',
-                                    'cursor': 'pointer',
-                                    'fontWeight': 'bold'
-                                }
-                            ),
-                            html.Button(
-                                "Counterfactual Profile Grid",
-                                id='toggle-profile-2',
-                                style={
-                                    'fontSize': '14px',
-                                    'padding': '8px 16px',
-                                    'backgroundColor': '#6c757d',
-                                    'color': 'white',
-                                    'border': 'none',
-                                    'borderRadius': '5px',
-                                    'cursor': 'pointer'
-                                }
-                            )
-                        ], style={'textAlign': 'center', 'marginBottom': '0px'}),
                         
                         # Instructions
                         html.P(
-                            "Click on a profile button above to view its specification grid. The grid will show the procedural choices for all universes in that profile.",
+                            "The specification grid shows the procedural choices for all universes. Drag to select universes in the specification curves above to filter the grid view.",
                             style={
                                 'fontSize': '12px',
                                 'color': '#666',
                                 'textAlign': 'center',
-                                'marginBottom': '5px',
+                                'marginBottom': '10px',
                                 'fontStyle': 'italic'
-                            }
-                        ),
-                        html.P(
-                            "💡 Tip: Drag to select universes in the specification curves above to filter the grid view. The grid will automatically switch to show the selected profile. You can also click the profile buttons to manually switch between grids.",
-                            style={
-                                'fontSize': '11px',
-                                'color': '#28a745',
-                                'textAlign': 'center',
-                                'marginBottom': '0px',
-                                'fontStyle': 'italic',
-                                'fontWeight': 'bold'
                             }
                         ),
                         
@@ -632,28 +692,9 @@ def create_layout():
                                     'displaylogo': False
                                 }
                             )
-                        ])
-                    ], style={'flex': '1.3', 'minWidth': '0'}),
-                    
-                    # Combined Universe Details Card
-                    html.Div([
-                        html.H4(
-                            id='universe-card-title',
-                            style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
-                        ),
-                        html.Div(
-                            id='combined-universe-card-content',
-                            style={
-                                'padding': '8px',
-                                'border': '1px solid #ddd',
-                                'borderRadius': '5px',
-                                'minHeight': '500px',
-                                'maxHeight': '500px',
-                                'backgroundColor': '#f9f9f9',
-                                'overflowY': 'auto'
-                            }
-                        )
-                    ], style={'flex': '0.33', 'minWidth': '0'}),
+                        ]),
+                        
+                    ], style={'flex': '1', 'minWidth': '0'}),
                     
                 ], style={'display': 'flex', 'flexDirection': 'row', 'alignItems': 'flex-start', 'gap': '20px'}),
                 
@@ -855,7 +896,7 @@ def create_specification_grid(df, profile_num, selected_universes=None):
             grid_data.append(row)
         
         # Then add the category header (this will appear above the options due to Plotly's y-axis ordering)
-        y_labels.append(f"📋 {column_display_name}")  # Category header with icon
+        y_labels.append(f"{column_display_name}")  # Category header
         
         # Create a header row (all 0 to indicate it's a header)
         header_row = [0] * len(df_display)
@@ -890,10 +931,10 @@ def create_specification_grid(df, profile_num, selected_universes=None):
     
     # Add a legend for the current view
     if selected_universes is not None and len(selected_universes) > 0:
-        legend_text = f"🎯 Showing {len(selected_universes)} Selected Universes"
+        legend_text = f"Showing {len(selected_universes)} Selected Universes"
         legend_color = '#d63384' if profile_num == 1 else '#0d6efd'
     else:
-        legend_text = "📊 Showing All Universes"
+        legend_text = "Showing All Universes"
         legend_color = '#666'
     
     # Parse color safely
@@ -1092,7 +1133,7 @@ def get_tree_nodes_r(df):
         traceback.print_exc()
         return []
 
-def get_variable_importance_display(df, profile, profile_num):
+def get_variable_importance_display(df, profile, profile_num, selected_universes=None):
     """Generate variable importance display for a specific profile"""
     # Check if dataframe is empty (no analysis run yet)
     if df.empty:
@@ -1107,11 +1148,32 @@ def get_variable_importance_display(df, profile, profile_num):
             html.P(f"Dataset Size: No data available", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'})
         ])
     
+    # Filter data based on selected universes if provided
+    analysis_df = df.copy()
+    analysis_title_suffix = ""
+    
+    if selected_universes is not None and len(selected_universes) > 0:
+        # Convert selected universe indices to actual universe IDs
+        try:
+            # Sort data by recidivism probability to match specification curve ordering
+            df_sorted = df.sort_values('recidivism_prob')
+            selected_universe_ids = [df_sorted.index[i] for i in selected_universes if isinstance(i, int) and i < len(df_sorted)]
+            if selected_universe_ids:
+                analysis_df = df_sorted.loc[selected_universe_ids]
+                analysis_title_suffix = f" (Selected {len(selected_universe_ids)} universes)"
+            else:
+                analysis_title_suffix = " (All universes)"
+        except (IndexError, KeyError, TypeError):
+            # Fallback to showing all universes if there's an error
+            analysis_title_suffix = " (All universes)"
+    else:
+        analysis_title_suffix = " (All universes)"
+    
     # Get variable importance using R decision tree
-    var_importance = get_variable_importance_r(df)
+    var_importance = get_variable_importance_r(analysis_df)
     
     # Get tree nodes using R analysis
-    tree_nodes = get_tree_nodes_r(df)
+    tree_nodes = get_tree_nodes_r(analysis_df)
     
     # Debug: print the raw variable importance data
     print(f"Profile {profile_num} - Raw var_importance: {var_importance}")
@@ -1120,8 +1182,17 @@ def get_variable_importance_display(df, profile, profile_num):
     # Create variable importance display
     var_importance_html = []
     if var_importance:
-        var_importance_html.append(html.H5("Key Decisions (Regression Tree)", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '10px'}))
-        var_importance_html.append(html.P("Most impactful methods on recidivism probability:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '8px'}))
+        # Add analysis status indicator
+        if selected_universes is not None and len(selected_universes) > 0:
+            status_indicator = html.Div([
+                html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
+                html.Span(f"Analyzing {len(selected_universes)} selected universes", 
+                         style={'fontSize': '11px', 'color': '#28a745', 'fontWeight': 'bold'})
+            ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
+            var_importance_html.append(status_indicator)
+        
+        var_importance_html.append(html.H5(f"Key Decisions (Regression Tree){analysis_title_suffix}", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '6px'}))
+        var_importance_html.append(html.P("Most impactful methods on recidivism probability:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
         
         # Create bar plot for top 5 variables
         if len(var_importance) >= 1:
@@ -1158,13 +1229,13 @@ def get_variable_importance_display(df, profile, profile_num):
                     title=None,
                     # xaxis_title='Importance Score',
                     yaxis_title=None,
-                    height=200,
-                    margin=dict(l=10, r=10, t=10, b=10),
+                    height=120,
+                    margin=dict(l=8, r=8, t=5, b=5),
                     showlegend=False,
                     xaxis=dict(
                         showgrid=False, 
                         zeroline=False,
-                        title_font=dict(size=10)  # Smaller font size
+                        title_font=dict(size=9)  # Smaller font size
                     ),
                     yaxis=dict(showgrid=False, zeroline=False),
                     plot_bgcolor='rgba(0,0,0,0)',
@@ -1175,27 +1246,27 @@ def get_variable_importance_display(df, profile, profile_num):
                 var_importance_html.append(dcc.Graph(
                     figure=bar_fig,
                     config={'displayModeBar': False},
-                    style={'height': '150px'}
+                    style={'height': '100px'}
                 ))
         
         # Add tree nodes section
         if tree_nodes:
-            var_importance_html.append(html.Hr(style={'margin': '10px 0', 'borderColor': '#ddd'}))
-            var_importance_html.append(html.H5("Tree Split Rules", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '10px', 'marginBottom': '8px'}))
-            var_importance_html.append(html.P("Most important decision splits in the regression tree:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '8px'}))
+            var_importance_html.append(html.Hr(style={'margin': '6px 0', 'borderColor': '#ddd'}))
+            var_importance_html.append(html.H5(f"Tree Split Rules{analysis_title_suffix}", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '6px', 'marginBottom': '5px'}))
+            var_importance_html.append(html.P("Most important decision splits in the regression tree:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
             
             # Create list of tree nodes
             tree_nodes_html = []
             for i, node in enumerate(tree_nodes[:5]):  # Show top 5 nodes
-                rank_emoji = "🥇" if node['rank'] == 1 else "🥈" if node['rank'] == 2 else "🥉" if node['rank'] == 3 else f"#{node['rank']}"
+                rank_text = "1st" if node['rank'] == 1 else "2nd" if node['rank'] == 2 else "3rd" if node['rank'] == 3 else f"#{node['rank']}"
                 tree_nodes_html.append(
                     html.Div([
-                        html.Span(f"{rank_emoji} ", style={'fontSize': '12px'}),
+                        html.Span(f"{rank_text} ", style={'fontSize': '12px'}),
                         html.Span(f"Node {node['node']}: ", style={'fontSize': '11px', 'fontWeight': 'bold', 'color': '#333'}),
                         html.Span(node['rule'], style={'fontSize': '11px', 'color': '#666'})
                     ], style={
-                        'marginBottom': '6px',
-                        'padding': '4px 8px',
+                        'marginBottom': '4px',
+                        'padding': '3px 6px',
                         'backgroundColor': '#f8f9fa',
                         'borderRadius': '4px',
                         'borderLeft': f'3px solid {"#d63384" if profile_num == 1 else "#0d6efd"}'
@@ -1205,7 +1276,16 @@ def get_variable_importance_display(df, profile, profile_num):
             var_importance_html.extend(tree_nodes_html)
 
     else:
-        var_importance_html.append(html.P("Variable importance analysis not available", style={'color': '#999', 'fontStyle': 'italic'}))
+        # Provide more helpful error message
+        if selected_universes is not None and len(selected_universes) > 0:
+            error_msg = f"Decision tree analysis failed for {len(selected_universes)} selected universes. This might be due to insufficient data or identical values across all selected universes."
+        else:
+            error_msg = "Variable importance analysis not available. Please ensure the multiverse analysis has been completed."
+        
+        var_importance_html.append(html.Div([
+            html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
+            html.Span(error_msg, style={'fontSize': '11px', 'color': '#dc3545', 'fontStyle': 'italic'})
+        ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#f8d7da', 'borderRadius': '4px', 'border': '1px solid #f5c6cb'}))
     
     return html.Div([
         # Brief instruction in light gray
@@ -1216,210 +1296,115 @@ def get_variable_importance_display(df, profile, profile_num):
         *var_importance_html,
         
         # Additional info
-        html.Hr(style={'margin': '15px 0'}),
-        html.P(f"Profile: {'Focal' if profile_num == 1 else 'Counterfactual'}", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'}),
-        html.P(f"Demographics: {profile['age']} years, {profile['gender'].title()}, {profile['race'].replace('_', ' ').title()}", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'}),
-        html.P(f"Dataset Size: {len(df)} specifications", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'})
+        html.Hr(style={'margin': '8px 0'}),
+        html.P(f"Profile: {'Focal' if profile_num == 1 else 'Counterfactual'}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
+        html.P(f"Demographics: {profile['age']} years, {profile['gender'].title()}, {profile['race'].replace('_', ' ').title()}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
+        html.P(f"Dataset Size: {len(analysis_df)} specifications{analysis_title_suffix}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic'})
     ])
 
-def get_universe_details(df, profile, profile_num):
-    """Generate universe details showing the demographic profile information"""
-    # Check if dataframe is empty (no analysis run yet)
+def get_dataset_overview_content(df_nc, df_low_risk):
+    """Generate dataset overview content for the sidebar"""
+    # Use either dataset since they have the same method combinations
+    df = df_nc if not df_nc.empty else df_low_risk
+    
     if df.empty:
         return html.Div([
-            html.P("This card shows the demographic profile information", 
-                   style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
-            
-            # Demographic Profile section
-            html.H5("Demographic Profile", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '10px'}),
-            html.P(f"Age: {profile['age']} years", style={'fontSize': '11px', 'marginBottom': '4px', 'fontWeight': 'bold'}),
-            html.P(f"Gender: {profile['gender'].title()}", style={'fontSize': '11px', 'marginBottom': '4px'}),
-            html.P(f"Race: {profile['race'].replace('_', ' ').title()}", style={'fontSize': '11px', 'marginBottom': '4px'}),
-            
-            # Dataset Overview section
-            html.H5("Dataset Overview", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '15px', 'marginBottom': '10px'}),
             html.P("No analysis data available. Click 'Run Multiverse Analysis' to generate results.", 
                    style={'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '20px'})
         ])
     
+    # Calculate total specifications across both profiles
+    total_specs = len(df_nc) + len(df_low_risk) if not df_nc.empty and not df_low_risk.empty else len(df)
+    
     return html.Div([
-        # Brief instruction in light gray
-        html.P("This card shows the demographic profile information", 
-               style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
-        
-        # Demographic Profile section
-        html.H5("Demographic Profile", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '10px'}),
-        html.P(f"Age: {profile['age']} years", style={'fontSize': '11px', 'marginBottom': '4px', 'fontWeight': 'bold'}),
-        html.P(f"Gender: {profile['gender'].title()}", style={'fontSize': '11px', 'marginBottom': '4px'}),
-        html.P(f"Race: {profile['race'].replace('_', ' ').title()}", style={'fontSize': '11px', 'marginBottom': '4px'}),
-        
-        # Dataset Overview section
-        html.H5("Dataset Overview", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '15px', 'marginBottom': '10px'}),
-        html.P(f"Total Specifications: {len(df)}", style={'fontSize': '11px', 'marginBottom': '4px'}),
-        html.P(f"Unique Preprocessing Methods: {df['preprocessing'].nunique()}", style={'fontSize': '11px', 'marginBottom': '4px'}),
-        html.P(f"Unique Split Ratios: {df['split'].nunique()}", style={'fontSize': '11px', 'marginBottom': '4px'}),
-        html.P(f"Unique Age Categories: {df['age_category'].nunique()}", style={'fontSize': '11px', 'marginBottom': '4px'}),
-        html.P(f"Unique Imbalancing Methods: {df['imbalancing_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '4px'}),
-        html.P(f"Unique Predictor Methods: {df['predictor_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '4px'}),
-        html.P(f"Unique Recidivism Methods: {df['define_recid_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '4px'})
-    ])
+        html.P("Method Combinations", style={'fontSize': '12px', 'color': '#333', 'marginBottom': '8px', 'fontWeight': 'bold', 'textAlign': 'center'}),
+        html.P(f"Total Specifications: {total_specs}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Unique Preprocessing: {df['preprocessing'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Unique Split Ratios: {df['split'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Unique Age Categories: {df['age_category'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Unique Imbalancing: {df['imbalancing_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Unique Predictors: {df['predictor_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Unique Recidivism: {df['define_recid_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.Hr(style={'margin': '8px 0', 'borderColor': '#ddd'}),
+        html.P("Note: Both profiles use the same method combinations with different demographic parameters.", 
+               style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '5px'})
+    ], style={'padding': '8px', 'backgroundColor': '#f8f9fa', 'borderRadius': '4px', 'border': '1px solid #dee2e6'})
+
 
 # Selection handling is now integrated into the main callback
 
 
 
-# Callback to handle selection events from specification curve 1
+# Combined callback to handle selection events and radio button clicks
 @app.callback(
     Output('selected-universes-1', 'children'),
-    Output('toggle-profile-1', 'style', allow_duplicate=True),
-    Output('toggle-profile-2', 'style', allow_duplicate=True),
-    Input('spec-curve-1', 'selectedData'),
-    prevent_initial_call=True
-)
-def update_selected_universes_1(selected_data):
-    global current_grid_profile
-    
-    # Update selection
-    if selected_data and 'points' in selected_data:
-        # Extract the point indices from the selection
-        selected_points = selected_data['points']
-        selected_indices = [point['pointIndex'] for point in selected_points if 'pointIndex' in point]
-        
-        # If there are selected universes, switch to profile 1
-        if selected_indices:
-            current_grid_profile = 1
-    else:
-        selected_indices = []
-    
-    # Update button styles based on current profile
-    profile1_style = {
-        'fontSize': '14px',
-        'padding': '8px 16px',
-        'marginRight': '10px',
-        'backgroundColor': '#d63384' if current_grid_profile == 1 else '#6c757d',
-        'color': 'white',
-        'border': 'none',
-        'borderRadius': '5px',
-        'cursor': 'pointer',
-        'fontWeight': 'bold' if current_grid_profile == 1 else 'normal'
-    }
-    
-    profile2_style = {
-        'fontSize': '14px',
-        'padding': '8px 16px',
-        'backgroundColor': '#0d6efd' if current_grid_profile == 2 else '#6c757d',
-        'color': 'white',
-        'border': 'none',
-        'borderRadius': '5px',
-        'cursor': 'pointer',
-        'fontWeight': 'bold' if current_grid_profile == 2 else 'normal'
-    }
-    
-    return selected_indices, profile1_style, profile2_style
-
-# Callback to handle selection events from specification curve 2
-@app.callback(
     Output('selected-universes-2', 'children'),
-    Output('toggle-profile-1', 'style', allow_duplicate=True),
-    Output('toggle-profile-2', 'style', allow_duplicate=True),
+    Output('grid-profile-switcher-1', 'value'),
+    Output('grid-profile-switcher-2', 'value'),
+    Input('spec-curve-1', 'selectedData'),
     Input('spec-curve-2', 'selectedData'),
+    Input('grid-profile-switcher-1', 'value'),
+    Input('grid-profile-switcher-2', 'value'),
     prevent_initial_call=True
 )
-def update_selected_universes_2(selected_data):
-    global current_grid_profile
-    
-    # Update selection
-    if selected_data and 'points' in selected_data:
-        # Extract the point indices from the selection
-        selected_points = selected_data['points']
-        selected_indices = [point['pointIndex'] for point in selected_points if 'pointIndex' in point]
-        
-        # If there are selected universes, switch to profile 2
-        if selected_indices:
-            current_grid_profile = 2
-    else:
-        selected_indices = []
-    
-    # Update button styles based on current profile
-    profile1_style = {
-        'fontSize': '14px',
-        'padding': '8px 16px',
-        'marginRight': '10px',
-        'backgroundColor': '#d63384' if current_grid_profile == 1 else '#6c757d',
-        'color': 'white',
-        'border': 'none',
-        'borderRadius': '5px',
-        'cursor': 'pointer',
-        'fontWeight': 'bold' if current_grid_profile == 1 else 'normal'
-    }
-    
-    profile2_style = {
-        'fontSize': '14px',
-        'padding': '8px 16px',
-        'backgroundColor': '#0d6efd' if current_grid_profile == 2 else '#6c757d',
-        'color': 'white',
-        'border': 'none',
-        'borderRadius': '5px',
-        'cursor': 'pointer',
-        'fontWeight': 'bold' if current_grid_profile == 2 else 'normal'
-    }
-    
-    return selected_indices, profile1_style, profile2_style
-
-# Combined callback to handle both initialization and toggle functionality
-@app.callback(
-    Output('toggle-profile-1', 'style'),
-    Output('toggle-profile-2', 'style'),
-    Input('dummy-input', 'value'),
-    Input('toggle-profile-1', 'n_clicks'),
-    Input('toggle-profile-2', 'n_clicks')
-)
-def handle_button_styles(dummy_value, n_clicks_1, n_clicks_2):
-    global current_grid_profile
-    
-    # Determine which input triggered the callback
+def update_selected_universes(selected_data_1, selected_data_2, switcher_1_value, switcher_2_value):
+    # Get the context to determine which input triggered the callback
     ctx = dash.callback_context
     if not ctx.triggered:
-        # Initial load - set Profile 1 as selected
-        current_grid_profile = 1
-    else:
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger_id == 'toggle-profile-1':
-            current_grid_profile = 1
-        elif trigger_id == 'toggle-profile-2':
-            current_grid_profile = 2
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
     
-    # Update button styles based on current selection
-    profile1_style = {
-        'fontSize': '14px',
-        'padding': '8px 16px',
-        'marginRight': '10px',
-        'backgroundColor': '#d63384' if current_grid_profile == 1 else '#6c757d',
-        'color': 'white',
-        'border': 'none',
-        'borderRadius': '5px',
-        'cursor': 'pointer',
-        'fontWeight': 'bold' if current_grid_profile == 1 else 'normal'
-    }
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
-    profile2_style = {
-        'fontSize': '14px',
-        'padding': '8px 16px',
-        'backgroundColor': '#0d6efd' if current_grid_profile == 2 else '#6c757d',
-        'color': 'white',
-        'border': 'none',
-        'borderRadius': '5px',
-        'cursor': 'pointer',
-        'fontWeight': 'bold' if current_grid_profile == 2 else 'normal'
-    }
+    if trigger_id == 'spec-curve-1':
+        # Handle selection from specification curve 1 (Focal Profile)
+        if selected_data_1 and 'points' in selected_data_1:
+            selected_points = selected_data_1['points']
+            selected_indices = [point['pointIndex'] for point in selected_points if 'pointIndex' in point]
+            
+            # If there are selected universes, automatically switch to profile 1
+            if selected_indices:
+                return selected_indices, dash.no_update, 1, None  # Switch to Focal Profile
+        else:
+            selected_indices = []
+        
+        return selected_indices, dash.no_update, dash.no_update, dash.no_update  # Don't change profile switcher if no selection
     
-    return profile1_style, profile2_style
+    elif trigger_id == 'spec-curve-2':
+        # Handle selection from specification curve 2 (Counterfactual Profile)
+        if selected_data_2 and 'points' in selected_data_2:
+            selected_points = selected_data_2['points']
+            selected_indices = [point['pointIndex'] for point in selected_points if 'pointIndex' in point]
+            
+            # If there are selected universes, automatically switch to profile 2
+            if selected_indices:
+                return dash.no_update, selected_indices, None, 2  # Switch to Counterfactual Profile
+        else:
+            selected_indices = []
+        
+        return dash.no_update, selected_indices, dash.no_update, dash.no_update  # Don't change profile switcher if no selection
+    
+    elif trigger_id == 'grid-profile-switcher-1':
+        # Handle manual radio button click for Focal Profile
+        return dash.no_update, dash.no_update, 1, None  # Set focal to 1, clear counterfactual
+    
+    elif trigger_id == 'grid-profile-switcher-2':
+        # Handle manual radio button click for Counterfactual Profile
+        return dash.no_update, dash.no_update, None, 2  # Clear focal, set counterfactual to 2
+    
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+
+
 
 # Global variables to store progress updates
 progress_updates = {"focal": [], "counterfactual": []}
 progress_counts = {"focal": 0, "counterfactual": 0}
 total_universes = 2700
-analysis_completed = False
+
+# Global variables to track selected universe analysis state
+selected_universe_analysis_active = False
+selected_universe_analysis_profile = None  # 1 for focal, 2 for counterfactual
+selected_universe_analysis_data = None  # Store the selected universes for analysis
 
 # Callback to show submit button feedback
 @app.callback(
@@ -1429,52 +1414,20 @@ analysis_completed = False
     Input('progress-interval', 'n_intervals')
 )
 def update_submit_button(n_clicks, n_intervals):
-    global analysis_completed
-    
-    # Update button state
-    if n_clicks and n_clicks > 0:
-        if analysis_completed:
-            button_text = "Complete"
-            button_style = {
-                'fontSize': '16px',
-                'padding': '12px 24px',
-                'backgroundColor': '#28a745',
-                'color': 'white',
-                'border': 'none',
-                'borderRadius': '8px',
-                'cursor': 'pointer',
-                'fontWeight': 'bold',
-                'width': '100%',
-                'marginTop': '10px'
-            }
-        else:
-            button_text = "Processing..."
-            button_style = {
-                'fontSize': '16px',
-                'padding': '12px 24px',
-                'backgroundColor': '#495057',
-                'color': 'white',
-                'border': 'none',
-                'borderRadius': '8px',
-                'cursor': 'not-allowed',
-                'fontWeight': 'bold',
-                'width': '100%',
-                'marginTop': '10px'
-            }
-    else:
-        button_text = "Run Multiverse Analysis"
-        button_style = {
-            'fontSize': '16px',
-            'padding': '12px 24px',
-            'backgroundColor': '#6c757d',
-            'color': 'white',
-            'border': 'none',
-            'borderRadius': '8px',
-            'cursor': 'pointer',
-            'fontWeight': 'bold',
-            'width': '100%',
-            'marginTop': '10px'
-        }
+    # Always show "Run Multiverse Analysis" button
+    button_text = "Run Multiverse Analysis"
+    button_style = {
+        'fontSize': '16px',
+        'padding': '12px 24px',
+        'backgroundColor': '#6c757d',
+        'color': 'white',
+        'border': 'none',
+        'borderRadius': '8px',
+        'cursor': 'pointer',
+        'fontWeight': 'bold',
+        'width': '100%',
+        'marginTop': '10px'
+    }
     
     return button_text, button_style
 
@@ -1522,17 +1475,18 @@ def update_progress_bars(n_intervals):
     Output('combined-spec-grid', 'figure'),
     Output('selected-profile-summary-1', 'children'),
     Output('selected-profile-summary-2', 'children'),
-    Output('universe-card-title', 'children'),
-    Output('universe-card-title', 'style'),
-    Output('combined-universe-card-content', 'children'),
-    Output('variable-importance-title', 'children'),
-    Output('variable-importance-title', 'style'),
-    Output('variable-importance-content', 'children'),
+    Output('variable-importance-title-1', 'children'),
+    Output('variable-importance-title-1', 'style'),
+    Output('variable-importance-content-1', 'children'),
+    Output('variable-importance-title-2', 'children'),
+    Output('variable-importance-title-2', 'style'),
+    Output('variable-importance-content-2', 'children'),
+    Output('dataset-overview-content', 'children'),
     Input('submit-profiles-button', 'n_clicks'),
-    Input('toggle-profile-1', 'n_clicks'),
-    Input('toggle-profile-2', 'n_clicks'),
     Input('selected-universes-1', 'children'),
     Input('selected-universes-2', 'children'),
+    Input('grid-profile-switcher-1', 'value'),
+    Input('grid-profile-switcher-2', 'value'),
     State('age-slider-1', 'value'),
     State('gender-dropdown-1', 'value'),
     State('race-dropdown-1', 'value'),
@@ -1540,9 +1494,10 @@ def update_progress_bars(n_intervals):
     State('gender-dropdown-2', 'value'),
     State('race-dropdown-2', 'value')
 )
-def update_dashboard(submit_clicks, toggle_1, toggle_2, selected_1, selected_2,
+def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switcher_1, grid_profile_switcher_2,
                     age_1, gender_1, race_1, age_2, gender_2, race_2):
-    global current_grid_profile
+    global current_grid_profile, df_nc, df_low_risk
+    global selected_universe_analysis_active, selected_universe_analysis_profile, selected_universe_analysis_data
     
     try:
         # Handle None values for selected universes
@@ -1559,15 +1514,15 @@ def update_dashboard(submit_clicks, toggle_1, toggle_2, selected_1, selected_2,
         ctx = dash.callback_context
         if ctx.triggered:
             trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-            # Only proceed if submit button was clicked, or if it's grid toggle events, or selection events
-            if trigger_id not in ['submit-profiles-button', 'toggle-profile-1', 'toggle-profile-2', 'selected-universes-1', 'selected-universes-2']:
+            print(f"Callback triggered by: {trigger_id}")
+            # Only proceed if submit button was clicked, or if it's selection events, or profile switcher
+            if trigger_id not in ['submit-profiles-button', 'selected-universes-1', 'selected-universes-2', 'grid-profile-switcher-1', 'grid-profile-switcher-2']:
                 # Return current state without updating if other inputs changed
+                print(f"Preventing update for trigger: {trigger_id}")
                 raise dash.exceptions.PreventUpdate
             
             # If submit button was clicked, run the multiverse analysis
             if trigger_id == 'submit-profiles-button':
-                global analysis_completed
-                analysis_completed = False  # Reset completion state
                 print("Submit button clicked - running sequential multiverse analysis...")
                 # Run analyses sequentially with proper progress tracking
                 focal_results = run_multiverse_analysis_with_profile(age_1, gender_1, race_1)
@@ -1575,14 +1530,55 @@ def update_dashboard(submit_clicks, toggle_1, toggle_2, selected_1, selected_2,
                 print("Sequential multiverse analysis completed!")
                 
                 # Store results globally for use in charts
-                global df_nc, df_low_risk
                 if focal_results is not None:
                     df_nc = focal_results
                 if counterfactual_results is not None:
                     df_low_risk = counterfactual_results
                 
-                # Mark analysis as completed
-                analysis_completed = True
+                # Reset selected universe analysis state when new analysis is run
+                selected_universe_analysis_active = False
+                selected_universe_analysis_profile = None
+                selected_universe_analysis_data = None
+            elif trigger_id in ['selected-universes-1', 'selected-universes-2', 'grid-profile-switcher-1', 'grid-profile-switcher-2']:
+                # Handle selection changes or profile switcher changes
+                if trigger_id in ['grid-profile-switcher-1', 'grid-profile-switcher-2']:
+                    # Profile switcher changed - just update the grid display
+                    if trigger_id == 'grid-profile-switcher-1':
+                        print(f"Profile switcher changed to: Focal Profile")
+                    else:
+                        print(f"Profile switcher changed to: Counterfactual Profile")
+                else:
+                    # Handle selection changes - automatically activate analysis for new selections
+                    current_selection = selected_1 if trigger_id == 'selected-universes-1' else selected_2
+                    profile_num = 1 if trigger_id == 'selected-universes-1' else 2
+                    
+                    # Normalize selections for comparison (handle None vs empty list)
+                    current_selection_normalized = current_selection if current_selection is not None else []
+                    stored_selection_normalized = selected_universe_analysis_data if selected_universe_analysis_data is not None else []
+                    
+                    # If user has selected universes, automatically activate analysis
+                    if len(current_selection_normalized) > 0:
+                        # Check if this is a new selection or change in selection
+                        if (current_selection_normalized != stored_selection_normalized or 
+                            not selected_universe_analysis_active or 
+                            selected_universe_analysis_profile != profile_num):
+                            
+                            # Activate analysis for the selected universes
+                            selected_universe_analysis_active = True
+                            selected_universe_analysis_profile = profile_num
+                            selected_universe_analysis_data = current_selection_normalized
+                            print(f"Auto-activating decision tree analysis for profile {profile_num} with {len(current_selection_normalized)} selected universes")
+                        else:
+                            print(f"Selection unchanged, preserving analysis state (profile {profile_num}, {len(current_selection_normalized)} universes)")
+                    else:
+                        # No universes selected, reset to default analysis
+                        if selected_universe_analysis_active:
+                            selected_universe_analysis_active = False
+                            selected_universe_analysis_profile = None
+                            selected_universe_analysis_data = None
+                            print("No universes selected, resetting to default analysis")
+                        else:
+                            print("No universes selected, using default analysis")
         
         # Create profile dictionaries with demographic values
         profile1 = {
@@ -1599,42 +1595,54 @@ def update_dashboard(submit_clicks, toggle_1, toggle_2, selected_1, selected_2,
         
         # Create all the figures and content for both profiles
         # Profile 1 uses nc_multiverse.csv, Profile 2 uses low_risk_multiverse.csv
-        # Only recreate curves if not triggered by selection events (but allow toggle events)
-        if ctx.triggered and ctx.triggered[0]['prop_id'].split('.')[0] in ['selected-universes-1', 'selected-universes-2']:
-            # For selection events, return the current curves to preserve selection
+        # Only recreate curves if not triggered by selection events or profile switcher
+        if ctx.triggered and ctx.triggered[0]['prop_id'].split('.')[0] in ['selected-universes-1', 'selected-universes-2', 'grid-profile-switcher-1', 'grid-profile-switcher-2']:
+            # For selection events or profile switcher, return the current curves to preserve selection
             spec_curve_1 = dash.no_update
             spec_curve_2 = dash.no_update
         else:
-            # For toggle events or other triggers, recreate curves
+            # For other triggers, recreate curves
             spec_curve_1 = create_specification_curve(df_nc, profile1, 1)
             spec_curve_2 = create_specification_curve(df_low_risk, profile2, 2)
         
-        # Create the combined specification grid based on current selection
-        if current_grid_profile == 1:
-            # Use selected universes from profile 1 if available
+        
+        # Create the combined specification grid based on profile switcher selection
+        # Determine which profile is selected based on radio button values
+        if grid_profile_switcher_1 == 1:
+            # Focal profile is selected
             selected_universes = selected_1 if selected_1 is not None else []
             combined_spec_grid = create_specification_grid(df_nc, 1, selected_universes)
-            universe_card_title = "Focal Universe Details"
-            universe_card_title_style = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
-            combined_universe_content = get_universe_details(df_nc, profile1, 1)
-            variable_importance_title = "Focal Variable Importance"
-            variable_importance_title_style = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
-            variable_importance_content = get_variable_importance_display(df_nc, profile1, 1)
-        else:
-            # Use selected universes from profile 2 if available
+        elif grid_profile_switcher_2 == 2:
+            # Counterfactual profile is selected
             selected_universes = selected_2 if selected_2 is not None else []
             combined_spec_grid = create_specification_grid(df_low_risk, 2, selected_universes)
-            universe_card_title = "Counterfactual Universe Details"
-            universe_card_title_style = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
-            combined_universe_content = get_universe_details(df_low_risk, profile2, 2)
-            variable_importance_title = "Counterfactual Variable Importance"
-            variable_importance_title_style = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
-            variable_importance_content = get_variable_importance_display(df_low_risk, profile2, 2)
+        else:
+            # Default to focal profile if neither is explicitly selected
+            selected_universes = selected_1 if selected_1 is not None else []
+            combined_spec_grid = create_specification_grid(df_nc, 1, selected_universes)
+        
+        # Set variable importance content for both profiles independently
+        # Profile 1 (Focal) variable importance
+        variable_importance_title_1 = "Focal Variable Importance"
+        variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
+        variable_importance_content_1 = get_variable_importance_display(df_nc, profile1, 1, selected_1)
+        
+        # Profile 2 (Counterfactual) variable importance
+        variable_importance_title_2 = "CF Variable Importance"
+        variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
+        variable_importance_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
     
         profile1_summary = get_profile_summary(profile1)
         profile2_summary = get_profile_summary(profile2)
         
-        return spec_curve_1, spec_curve_2, combined_spec_grid, profile1_summary, profile2_summary, universe_card_title, universe_card_title_style, combined_universe_content, variable_importance_title, variable_importance_title_style, variable_importance_content
+        
+        # Generate dataset overview content
+        dataset_overview_content = get_dataset_overview_content(df_nc, df_low_risk)
+        
+        return (spec_curve_1, spec_curve_2, combined_spec_grid, profile1_summary, profile2_summary, 
+                variable_importance_title_1, variable_importance_title_style_1, variable_importance_content_1,
+                variable_importance_title_2, variable_importance_title_style_2, variable_importance_content_2,
+                dataset_overview_content)
     
     except Exception as e:
         print(f"Error in update_dashboard: {e}")
@@ -1646,8 +1654,9 @@ def update_dashboard(submit_clicks, toggle_1, toggle_2, selected_1, selected_2,
         
         return (empty_fig, empty_fig, empty_fig, 
                 html.Div("Error"), html.Div("Error"), 
-                "Error", {}, html.Div("Error"), 
-                "Error", {}, html.Div("Error"))
+                "Error", {}, html.Div("Error"),
+                "Error", {}, html.Div("Error"),
+                html.Div("Error"))
 
 
 
