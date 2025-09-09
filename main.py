@@ -155,8 +155,13 @@ robjects.r(r_setup_code)
 # Execute the combinations R code
 robjects.r(combinations_r_code)
 
+# Function to check if two profiles have identical characteristics
+def profiles_are_identical(age1, gender1, race1, age2, gender2, race2):
+    """Check if two profiles have identical demographic characteristics"""
+    return age1 == age2 and gender1 == gender2 and race1 == race2
+
 # Function to run multiverse analysis with profile parameters
-def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_race):
+def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_race, is_shared_analysis=False):
     """Run multiverse analysis for a specific demographic profile"""
     global progress_updates, progress_counts
     
@@ -173,9 +178,21 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
         progress_updates[profile_key] = []
         progress_counts[profile_key] = 0
         
+        # If this is a shared analysis, also reset the other profile's progress
+        if is_shared_analysis:
+            other_profile_key = "counterfactual" if profile_key == "focal" else "focal"
+            progress_updates[other_profile_key] = []
+            progress_counts[other_profile_key] = 0
+        
         # Update progress
         progress_updates[profile_key].append(f"Starting {profile_name} analysis...")
         progress_updates[profile_key].append(f"Generating 2700 universes...")
+        
+        # If shared analysis, update both profiles
+        if is_shared_analysis:
+            other_profile_name = "Counterfactual" if profile_name == "Focal" else "Focal"
+            progress_updates[other_profile_key].append(f"Starting {other_profile_name} analysis...")
+            progress_updates[other_profile_key].append(f"Generating 2700 universes...")
         
         with localconverter(robjects.default_converter + pandas2ri.converter):
             # Get the R function
@@ -224,9 +241,17 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
                                         total_universes = int(parts[3])
                                         progress_counts[profile_key] = universe_num
                                         
+                                        # If shared analysis, update both profiles' progress
+                                        if is_shared_analysis:
+                                            other_profile_key = "counterfactual" if profile_key == "focal" else "focal"
+                                            progress_counts[other_profile_key] = universe_num
+                                        
                                         # Update progress text every 500 universes
                                         if universe_num % 500 == 0:
                                             progress_updates[profile_key].append(f"Processed {universe_num}/{total_universes} universes...")
+                                            if is_shared_analysis:
+                                                other_profile_name = "Counterfactual" if profile_name == "Focal" else "Focal"
+                                                progress_updates[other_profile_key].append(f"Processed {universe_num}/{total_universes} universes...")
                                         
                                         # Check if analysis is complete
                                         if universe_num >= total_universes:
@@ -253,6 +278,14 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
             progress_counts[profile_key] = 2700
             progress_updates[profile_key].append(f"Generated {len(results_df)} universes")
             progress_updates[profile_key].append(f"{profile_name} analysis completed!")
+            
+            # If shared analysis, finalize both profiles
+            if is_shared_analysis:
+                other_profile_key = "counterfactual" if profile_key == "focal" else "focal"
+                other_profile_name = "Counterfactual" if profile_name == "Focal" else "Focal"
+                progress_counts[other_profile_key] = 2700
+                progress_updates[other_profile_key].append(f"Generated {len(results_df)} universes")
+                progress_updates[other_profile_key].append(f"{other_profile_name} analysis completed!")
             
             # Clean up progress file
             import os
@@ -497,6 +530,12 @@ def create_layout():
                             ),
                             html.P(id='counterfactual-progress-text', children="0/2700 universes", 
                                    style={'fontSize': '10px', 'color': '#666', 'marginTop': '2px'})
+                        ], style={'marginBottom': '10px'}),
+                        
+                        # Add a note about optimizations
+                        html.Div([
+                            html.P("Note: Identical profiles run once together. Focal profile results are reused when possible.", 
+                                   style={'fontSize': '9px', 'color': '#888', 'textAlign': 'center', 'fontStyle': 'italic', 'marginTop': '5px'})
                         ], style={'marginBottom': '10px'})
                     ], style={'marginBottom': '10px'})
                 ], style={'marginBottom': '15px'}),
@@ -539,6 +578,24 @@ def create_layout():
                                 'displaylogo': False
                             }
                         ),
+                        # Clear Focal Selections button
+                        html.Div([
+                            html.Button(
+                                'Clear Focal Selections',
+                                id='clear-focal-btn',
+                                n_clicks=0,
+                                style={
+                                    'backgroundColor': '#d63384',
+                                    'color': 'white',
+                                    'border': 'none',
+                                    'padding': '8px 16px',
+                                    'borderRadius': '4px',
+                                    'cursor': 'pointer',
+                                    'fontSize': '12px',
+                                    'marginTop': '10px'
+                                }
+                            )
+                        ], style={'textAlign': 'center'})
                     ], style={'flex': '1.2', 'minWidth': '0'}),
                     
                     # 2. Focal Variable Importance Card
@@ -606,6 +663,24 @@ def create_layout():
                                 'displaylogo': False
                             }
                         ),
+                        # Clear Counterfactual Selections button
+                        html.Div([
+                            html.Button(
+                                'Clear CF Selections',
+                                id='clear-cf-btn',
+                                n_clicks=0,
+                                style={
+                                    'backgroundColor': '#0d6efd',
+                                    'color': 'white',
+                                    'border': 'none',
+                                    'padding': '8px 16px',
+                                    'borderRadius': '4px',
+                                    'cursor': 'pointer',
+                                    'fontSize': '12px',
+                                    'marginTop': '10px'
+                                }
+                            )
+                        ], style={'textAlign': 'center'})
                     ], style={'flex': '1.2', 'minWidth': '0'}),
                     
                     # 4. Counterfactual Variable Importance Card
@@ -672,7 +747,7 @@ def create_layout():
                         
                         # Instructions
                         html.P(
-                            "The specification grid shows the procedural choices for all universes. Drag to select universes in the specification curves above to filter the grid view.",
+                            "The specification grid shows the procedural choices for all universes. Drag to select multiple regions in either or both specification curves above to filter the grid view. Multiple selections are accumulated - each new selection adds to previous ones. Each profile supports regional analysis with separate decision trees for each selected region.",
                             style={
                                 'fontSize': '12px',
                                 'color': '#666',
@@ -694,6 +769,33 @@ def create_layout():
                             )
                         ]),
                         
+                        # Selection status indicator and controls (moved below grid)
+                        html.Div([
+                            html.Div(
+                                id='selection-status-indicator',
+                                style={
+                                    'fontSize': '11px',
+                                    'textAlign': 'center',
+                                    'marginBottom': '5px'
+                                }
+                            ),
+                            html.Div([
+                                html.Button(
+                                    "Clear All Selections",
+                                    id='clear-selections-button',
+                                    style={
+                                        'fontSize': '10px',
+                                        'padding': '4px 8px',
+                                        'backgroundColor': '#dc3545',
+                                        'color': 'white',
+                                        'border': 'none',
+                                        'borderRadius': '4px',
+                                        'cursor': 'pointer'
+                                    }
+                                )
+                            ], style={'textAlign': 'center', 'marginBottom': '10px'})
+                        ], style={'marginTop': '15px'}),
+                        
                     ], style={'flex': '1', 'minWidth': '0'}),
                     
                 ], style={'display': 'flex', 'flexDirection': 'row', 'alignItems': 'flex-start', 'gap': '20px'}),
@@ -704,7 +806,7 @@ def create_layout():
         
     ], style={'fontFamily': 'Arial, sans-serif', 'padding': '20px', 'maxWidth': '1800px', 'margin': 'auto'})
 
-def create_specification_curve(df, profile, profile_num):
+def create_specification_curve(df, profile, profile_num, previously_selected=None):
     """Create specification curve showing recidivism probabilities across different specifications for a single profile"""
     # Check if dataframe is empty (no analysis run yet)
     if df.empty:
@@ -757,9 +859,92 @@ def create_specification_curve(df, profile, profile_num):
         unselected=dict(marker=dict(size=6, opacity=0.6))  # Dim unselected points
     ))
     
+    # Add highlighting for previously selected regions
+    if previously_selected and len(previously_selected) > 0:
+        # Identify regions within previously selected indices
+        regions = identify_regions(previously_selected, df_plot)
+        
+        # Add a background trace for each previously selected region
+        for i, region in enumerate(regions):
+            if region:  # Make sure region is not empty
+                # Get the x and y coordinates for this region
+                region_x = [x_positions[idx] for idx in region if idx < len(x_positions)]
+                region_y = [df_plot['recidivism_prob'].iloc[idx] for idx in region if idx < len(df_plot)]
+                
+                if region_x and region_y:  # Make sure we have valid coordinates
+                    # Add a background highlight for this region
+                    fig.add_trace(go.Scatter(
+                        x=region_x,
+                        y=region_y,
+                        mode='markers',
+                        name=f'Selected Region {i+1}' if len(regions) > 1 else 'Selected Region',
+                        marker=dict(
+                            size=8,
+                            color='rgba(255, 255, 0, 0.3)',  # Semi-transparent yellow
+                            line=dict(width=2, color='orange')
+                        ),
+                        hoverinfo='skip',  # Skip hover for background traces
+                        showlegend=False
+                    ))
+                    
+                    # Add region boundary lines
+                    if len(region_x) > 1:
+                        # Add vertical lines at the start and end of each region
+                        start_x = min(region_x)
+                        end_x = max(region_x)
+                        y_min = min(region_y)
+                        y_max = max(region_y)
+                        
+                        # Start boundary
+                        fig.add_shape(
+                            type="line",
+                            x0=start_x, x1=start_x,
+                            y0=y_min, y1=y_max,
+                            line=dict(color="orange", width=2, dash="dash")
+                        )
+                        
+                        # End boundary
+                        fig.add_shape(
+                            type="line",
+                            x0=end_x, x1=end_x,
+                            y0=y_min, y1=y_max,
+                            line=dict(color="orange", width=2, dash="dash")
+                        )
+    
 
     
     # Profile highlighting removed since we now use dynamic data from R analysis
+    
+    # Add legend for visual indicators
+    legend_annotations = []
+    if previously_selected and len(previously_selected) > 0:
+        regions = identify_regions(previously_selected, df_plot)
+        if len(regions) > 1:
+            legend_annotations.append(
+                dict(
+                    x=0.02, y=0.98,
+                    xref='paper', yref='paper',
+                    text="🟡 Previously Selected Regions<br>🟠 Region Boundaries",
+                    showarrow=False,
+                    font=dict(size=10, color='#666'),
+                    bgcolor='rgba(255, 255, 255, 0.8)',
+                    bordercolor='#ccc',
+                    borderwidth=1
+                )
+            )
+        else:
+            legend_annotations.append(
+                dict(
+                    x=0.02, y=0.98,
+                    xref='paper', yref='paper',
+                    text="🟡 Previously Selected Region<br>🟠 Region Boundaries",
+                    showarrow=False,
+                    font=dict(size=10, color='#666'),
+                    bgcolor='rgba(255, 255, 255, 0.8)',
+                    bordercolor='#ccc',
+                    borderwidth=1
+                )
+            )
     
     fig.update_layout(
         title=f'{profile_name}',
@@ -774,7 +959,8 @@ def create_specification_curve(df, profile, profile_num):
             tickmode='linear',
             dtick=0.2,  # Show ticks at 0, 0.2, 0.4, 0.6, 0.8, 1.0
             tickformat='.1f'  # Format ticks as 0.0, 0.2, 0.4, etc.
-        )
+        ),
+        annotations=legend_annotations
     )
     
     # Configure x-axis to show sequential positions with universe labels
@@ -794,6 +980,306 @@ def create_specification_curve(df, profile, profile_num):
         )
     
 
+    
+    return fig
+
+def create_combined_specification_grid(df1, df2, selected_universes_1=None, selected_universes_2=None):
+    """Create combined specification grid showing procedural choices from both profiles"""
+    # Check if both dataframes are empty
+    if df1.empty and df2.empty:
+        # Create empty figure with message
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No analysis data available.<br>Click 'Run Multiverse Analysis' to generate results.",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, xanchor='center', yanchor='middle',
+            showarrow=False, font=dict(size=16, color='gray')
+        )
+        fig.update_layout(
+            title='Combined Specification Grid',
+            xaxis_title='Universe Index',
+            yaxis_title='Procedural Choices',
+            height=500,
+            showlegend=False
+        )
+        return fig
+    
+    # Combine data from both profiles with region tracking
+    combined_data = []
+    universe_labels = []
+    profile_colors = []
+    region_info = []  # Track which region each universe belongs to
+    profile_values = []  # Track profile values for coloring (1 for focal, 2 for counterfactual)
+    
+    # Process focal profile data (df1)
+    if not df1.empty:
+        df1_sorted = df1.sort_values('recidivism_prob')
+        if selected_universes_1 is not None and len(selected_universes_1) > 0:
+            try:
+                selected_universe_ids_1 = [df1_sorted.index[i] for i in selected_universes_1 if isinstance(i, int) and i < len(df1_sorted)]
+                if selected_universe_ids_1:
+                    df1_display = df1_sorted.loc[selected_universe_ids_1]
+                    # Identify regions within focal selections
+                    focal_regions = identify_regions(selected_universes_1, df1_sorted)
+                else:
+                    df1_display = df1_sorted
+                    focal_regions = [list(range(len(df1_sorted)))]
+            except (IndexError, KeyError, TypeError):
+                df1_display = df1_sorted
+                focal_regions = [list(range(len(df1_sorted)))]
+        else:
+            df1_display = df1_sorted
+            focal_regions = [list(range(len(df1_sorted)))]
+        
+        # Add focal profile data with region tracking
+        for i, (_, row) in enumerate(df1_display.iterrows()):
+            combined_data.append(row)
+            universe_labels.append(f"F{i}")
+            profile_colors.append('#d63384')  # Pink for focal
+            profile_values.append(1)  # 1 for focal profile
+            
+            # Determine which region this universe belongs to
+            region_num = 1
+            for j, region in enumerate(focal_regions):
+                if i in region:
+                    region_num = j + 1
+                    break
+            region_info.append(f"Focal Region {region_num}")
+    
+    # Process counterfactual profile data (df2)
+    if not df2.empty:
+        df2_sorted = df2.sort_values('recidivism_prob')
+        if selected_universes_2 is not None and len(selected_universes_2) > 0:
+            try:
+                selected_universe_ids_2 = [df2_sorted.index[i] for i in selected_universes_2 if isinstance(i, int) and i < len(df2_sorted)]
+                if selected_universe_ids_2:
+                    df2_display = df2_sorted.loc[selected_universe_ids_2]
+                    # Identify regions within counterfactual selections
+                    cf_regions = identify_regions(selected_universes_2, df2_sorted)
+                else:
+                    df2_display = df2_sorted
+                    cf_regions = [list(range(len(df2_sorted)))]
+            except (IndexError, KeyError, TypeError):
+                df2_display = df2_sorted
+                cf_regions = [list(range(len(df2_sorted)))]
+        else:
+            df2_display = df2_sorted
+            cf_regions = [list(range(len(df2_sorted)))]
+        
+        # Add counterfactual profile data with region tracking
+        for i, (_, row) in enumerate(df2_display.iterrows()):
+            combined_data.append(row)
+            universe_labels.append(f"CF{i}")
+            profile_colors.append('#0d6efd')  # Blue for counterfactual
+            profile_values.append(2)  # 2 for counterfactual profile
+            
+            # Determine which region this universe belongs to
+            region_num = 1
+            for j, region in enumerate(cf_regions):
+                if i in region:
+                    region_num = j + 1
+                    break
+            region_info.append(f"CF Region {region_num}")
+    
+    if not combined_data:
+        # No data to display
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No universes selected for display.",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, xanchor='center', yanchor='middle',
+            showarrow=False, font=dict(size=16, color='gray')
+        )
+        fig.update_layout(
+            title='Combined Specification Grid',
+            xaxis_title='Universe Index',
+            yaxis_title='Procedural Choices',
+            height=500,
+            showlegend=False
+        )
+        return fig
+    
+    # Create the grid data matrix
+    grid_data = []
+    y_labels = []
+    
+    # Define procedural choices and their options
+    procedural_choices = [
+        ('define_recid_method', ['5yr', '4yr', '3yr', '2yr', '1yr']),
+        ('predictor_method', ['protected', 'schmidt', 'full']),
+        ('imbalancing_method', ['Female Only', 'Male Only', 'Oversampling', 'Undersampling', 'Weighting']),
+        ('age_category', ['age_cat_nij', 'age_cat_compas', 'raw_age_year']),
+        ('split', ['8:2', '7:3', '6:4', '1:2']),
+        ('preprocessing', ['Method_C', 'Method_B', 'Method_A'])
+    ]
+    
+    # Create the grid data matrix
+    for choice_name, options in procedural_choices:
+        column_display_name = choice_name.replace('_', ' ').title()
+        
+        # Add the options for this category
+        for option in options:
+            y_labels.append(f"    {option}")
+            row = []
+            
+            for i, data_row in enumerate(combined_data):
+                # Determine if this option is selected for this universe
+                if choice_name == 'define_recid_method':
+                    selected = data_row['define_recid_method'] == option
+                elif choice_name == 'predictor_method':
+                    selected = data_row['predictor_method'] == option
+                elif choice_name == 'imbalancing_method':
+                    selected = data_row['imbalancing_method'] == option
+                elif choice_name == 'age_category':
+                    selected = data_row['age_category'] == option
+                elif choice_name == 'split':
+                    selected = data_row['split'] == option
+                elif choice_name == 'preprocessing':
+                    selected = data_row['preprocessing'] == option
+                else:
+                    selected = False
+                
+                # Use profile-specific values for coloring
+                if selected:
+                    # Use profile value (1 for focal, 2 for counterfactual) for selected items
+                    row.append(profile_values[i])
+                else:
+                    # Use 0.5 for unselected items
+                    row.append(0.5)
+            
+            grid_data.append(row)
+        
+        # Add the category header
+        y_labels.append(f"{column_display_name}")
+        header_row = [0] * len(combined_data)
+        grid_data.append(header_row)
+    
+    # Create colorscale for combined view with profile-specific colors
+    colorscale = [
+        [0, '#e9ecef'],    # Gray for category headers
+        [0.5, '#ffffff'],  # White for unselected
+        [1, '#d63384'],    # Pink for focal profile selected items
+        [2, '#0d6efd']     # Blue for counterfactual profile selected items
+    ]
+    
+    # Create the heatmap
+    fig = go.Figure(data=go.Heatmap(
+        z=grid_data,
+        x=list(range(len(combined_data))),
+        y=y_labels,
+        colorscale=colorscale,
+        showscale=False,
+        hoverongaps=False,
+        hoverinfo='z',
+        zmin=0,
+        zmax=2
+    ))
+    
+    # Add region separators
+    if len(combined_data) > 1:
+        # Find region boundaries
+        region_boundaries = []
+        current_region = region_info[0] if region_info else ""
+        
+        for i in range(1, len(region_info)):
+            if region_info[i] != current_region:
+                region_boundaries.append(i)
+                current_region = region_info[i]
+        
+        # Add vertical lines at region boundaries
+        for boundary in region_boundaries:
+            fig.add_shape(
+                type="line",
+                x0=boundary - 0.5, x1=boundary - 0.5,
+                y0=-0.5, y1=len(y_labels) - 0.5,
+                line=dict(color="orange", width=3, dash="solid")
+            )
+        
+        # Add region background colors
+        current_region = region_info[0] if region_info else ""
+        region_start = 0
+        
+        for i in range(len(region_info) + 1):
+            if i == len(region_info) or region_info[i] != current_region:
+                # End of current region, add background
+                if i > region_start:
+                    region_color = 'rgba(255, 165, 0, 0.1)' if 'Focal' in current_region else 'rgba(0, 123, 255, 0.1)'
+                    fig.add_shape(
+                        type="rect",
+                        x0=region_start - 0.5, x1=i - 0.5,
+                        y0=-0.5, y1=len(y_labels) - 0.5,
+                        fillcolor=region_color,
+                        line=dict(width=0)
+                    )
+                
+                if i < len(region_info):
+                    current_region = region_info[i]
+                    region_start = i
+    
+    # Add legend showing profile colors and region information
+    legend_text = f"Showing {len(combined_data)} Universes"
+    
+    # Count regions for each profile
+    focal_region_count = 0
+    cf_region_count = 0
+    
+    if region_info:
+        unique_regions = list(set(region_info))
+        focal_region_count = len([r for r in unique_regions if 'Focal' in r])
+        cf_region_count = len([r for r in unique_regions if 'CF' in r])
+    
+    if focal_region_count > 0:
+        legend_text += f" (Focal: {focal_region_count} region{'s' if focal_region_count > 1 else ''})"
+    if cf_region_count > 0:
+        legend_text += f" (CF: {cf_region_count} region{'s' if cf_region_count > 1 else ''})"
+    
+    # Add region separator legend
+    if len(region_info) > 1 and len(set(region_info)) > 1:
+        legend_text += "<br>🟠 Orange lines separate regions"
+    
+    fig.add_annotation(
+        x=0.02,
+        y=0.98,
+        xref='paper',
+        yref='paper',
+        text=legend_text,
+        showarrow=False,
+        font=dict(size=12, color='#333'),
+        bgcolor='rgba(108, 117, 125, 0.1)',
+        bordercolor='#6c757d',
+        borderwidth=1
+    )
+    
+    # Customize the layout
+    fig.update_layout(
+        title='Combined Specification Grid',
+        xaxis_title='Universe Index',
+        yaxis_title='Procedural Choices',
+        height=500,
+        showlegend=False,
+        yaxis=dict(
+            tickmode='array',
+            tickvals=list(range(len(y_labels))),
+            ticktext=y_labels,
+            tickfont=dict(size=10)
+        )
+    )
+    
+    # Update x-axis to show universe labels
+    if len(combined_data) <= 20:
+        fig.update_xaxes(
+            tickmode='array', 
+            tickvals=list(range(len(combined_data))), 
+            ticktext=universe_labels
+        )
+    else:
+        step = max(1, len(combined_data) // 10)
+        selected_positions = list(range(0, len(combined_data), step))
+        fig.update_xaxes(
+            tickmode='array', 
+            tickvals=selected_positions, 
+            ticktext=[universe_labels[i] for i in selected_positions]
+        )
     
     return fig
 
@@ -829,17 +1315,22 @@ def create_specification_grid(df, profile_num, selected_universes=None):
             if selected_universe_ids:
                 df_display = df_sorted.loc[selected_universe_ids]
                 title_suffix = f" - {len(selected_universe_ids)} Selected Universes"
+                # Identify regions within selections
+                regions = identify_regions(selected_universes, df_sorted)
             else:
                 df_display = df_sorted
                 title_suffix = " - All Universes"
+                regions = [list(range(len(df_sorted)))]
         except (IndexError, KeyError, TypeError):
             # Fallback to showing all universes if there's an error
             df_display = df_sorted
             title_suffix = " - All Universes"
+            regions = [list(range(len(df_sorted)))]
     else:
         # Show all universes
         df_display = df_sorted
         title_suffix = " - All Universes"
+        regions = [list(range(len(df_sorted)))]
     
     # Define procedural choices and their options, grouped as shown in the image
     procedural_choices = [
@@ -890,7 +1381,7 @@ def create_specification_grid(df, profile_num, selected_universes=None):
                 # Simple binary selection: 1 if selected, 0.5 if not
                 if selected:
                     row.append(1)
-                else:
+                        else:
                     row.append(0.5)
             
             grid_data.append(row)
@@ -929,13 +1420,78 @@ def create_specification_grid(df, profile_num, selected_universes=None):
         zmax=1
     ))
     
+    # Add region separators for single profile grid
+    if len(regions) > 1 and len(df_display) > 1:
+        # Find region boundaries in the displayed data
+        region_boundaries = []
+        current_region_idx = 0
+        region_start = 0
+        
+        for i, (_, row) in enumerate(df_display.iterrows()):
+            # Find which region this universe belongs to
+            universe_idx = df_sorted.index.get_loc(row.name)
+            region_idx = 0
+            for j, region in enumerate(regions):
+                if universe_idx in region:
+                    region_idx = j
+                    break
+            
+            if region_idx != current_region_idx:
+                region_boundaries.append(i)
+                current_region_idx = region_idx
+        
+        # Add vertical lines at region boundaries
+        for boundary in region_boundaries:
+            fig.add_shape(
+                type="line",
+                x0=boundary - 0.5, x1=boundary - 0.5,
+                y0=-0.5, y1=len(y_labels) - 0.5,
+                line=dict(color="orange", width=3, dash="solid")
+            )
+        
+        # Add region background colors
+        current_region_idx = 0
+        region_start = 0
+        
+        for i, (_, row) in enumerate(df_display.iterrows()):
+            # Find which region this universe belongs to
+            universe_idx = df_sorted.index.get_loc(row.name)
+            region_idx = 0
+            for j, region in enumerate(regions):
+                if universe_idx in region:
+                    region_idx = j
+                    break
+            
+            if region_idx != current_region_idx or i == len(df_display) - 1:
+                # End of current region, add background
+                if i > region_start:
+                    region_color = 'rgba(255, 165, 0, 0.1)'
+                    fig.add_shape(
+                        type="rect",
+                        x0=region_start - 0.5, x1=i - 0.5,
+                        y0=-0.5, y1=len(y_labels) - 0.5,
+                        fillcolor=region_color,
+                        line=dict(width=0)
+                    )
+                
+                if i < len(df_display) - 1:
+                    current_region_idx = region_idx
+                    region_start = i
+    
     # Add a legend for the current view
     if selected_universes is not None and len(selected_universes) > 0:
-        legend_text = f"Showing {len(selected_universes)} Selected Universes"
+        region_count = len(regions)
+                legend_text = f"Showing {len(selected_universes)} Selected Universes"
+        if region_count > 1:
+            legend_text += f" in {region_count} regions"
         legend_color = '#d63384' if profile_num == 1 else '#0d6efd'
     else:
         legend_text = "Showing All Universes"
         legend_color = '#666'
+    
+    # Add region separator legend for single profile
+    if len(regions) > 1 and len(df_display) > 1:
+        legend_text += "<br>🟠 Orange lines separate regions"
     
     # Parse color safely
     try:
@@ -1133,6 +1689,366 @@ def get_tree_nodes_r(df):
         traceback.print_exc()
         return []
 
+def identify_regions(selected_indices, df_sorted):
+    """Identify separate regions within selected indices"""
+    if not selected_indices:
+        return []
+    
+    # Sort the indices to identify contiguous regions
+    sorted_indices = sorted(selected_indices)
+    regions = []
+    current_region = [sorted_indices[0]]
+    
+    for i in range(1, len(sorted_indices)):
+        # If the next index is adjacent to the current region, extend it
+        if sorted_indices[i] == sorted_indices[i-1] + 1:
+            current_region.append(sorted_indices[i])
+        else:
+            # Gap found, start a new region
+            regions.append(current_region)
+            current_region = [sorted_indices[i]]
+    
+    # Add the last region
+    regions.append(current_region)
+    
+    return regions
+
+def get_regional_variable_importance_display(df, profile, profile_num, selected_universes=None):
+    """Generate variable importance display treating each selected region separately"""
+    # Check if dataframe is empty
+    if df.empty:
+        return html.Div([
+            html.P("This card shows the variable importance analysis", 
+                   style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
+            html.P("No analysis data available. Click 'Run Multiverse Analysis' to generate results.", 
+                   style={'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '50px'}),
+            html.Hr(style={'margin': '15px 0'}),
+            html.P(f"Profile: {'Focal' if profile_num == 1 else 'Counterfactual'}", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'}),
+            html.P(f"Dataset Size: No data available", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'})
+        ])
+    
+    # Sort data by recidivism probability to match specification curve ordering
+    df_sorted = df.sort_values('recidivism_prob')
+    
+    # Identify regions within selections
+    regions = identify_regions(selected_universes or [], df_sorted)
+    
+    if not regions:
+        # No regions, use all data
+        analysis_df = df_sorted
+        regions = [list(range(len(df_sorted)))]
+        region_title = "All Universes"
+    else:
+        region_title = f"{len(regions)} Region{'s' if len(regions) > 1 else ''}"
+    
+    # Create variable importance display
+    var_importance_html = []
+    
+    # Add analysis status indicator
+    if len(regions) > 1:
+        status_indicator = html.Div([
+            html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
+            html.Span(f"Analyzing {len(regions)} separate regions individually", 
+                     style={'fontSize': '11px', 'color': '#28a745', 'fontWeight': 'bold'})
+        ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
+        var_importance_html.append(status_indicator)
+    
+    var_importance_html.append(html.H5(f"Regional Decision Analysis ({region_title})", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
+    var_importance_html.append(html.P("Most impactful methods on recidivism probability for each region:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
+    
+    # Analyze each region separately
+    for i, region in enumerate(regions):
+        if not region:  # Skip empty regions
+            continue
+            
+        # Get data for this specific region
+        region_universe_ids = [df_sorted.index[idx] for idx in region if idx < len(df_sorted)]
+        region_df = df_sorted.loc[region_universe_ids] if region_universe_ids else df_sorted
+        
+        if region_df.empty:
+            continue
+        
+        # Get variable importance for this region
+        var_importance = get_variable_importance_r(region_df)
+        
+        # Get tree nodes for this region
+        tree_nodes = get_tree_nodes_r(region_df)
+        
+        # Create region header
+        region_header = html.Div([
+            html.H6(f"Region {i+1} ({len(region_df)} universes)", 
+                   style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '10px', 'marginBottom': '5px', 'fontSize': '13px', 'fontWeight': 'bold'}),
+        ])
+        var_importance_html.append(region_header)
+        
+        if var_importance:
+            # Create bar plot for this region
+            valid_vars = [(name, val) for name, val in var_importance if val is not None and val > 0]
+            if valid_vars:
+                top_vars_sorted = valid_vars[:5]
+                var_names = [var[0] for var in top_vars_sorted]
+                var_values = [var[1] for var in top_vars_sorted]
+                
+                # Create bar plot for this region
+                bar_fig = go.Figure(data=[
+                    go.Bar(
+                        x=var_values,
+                        y=var_names,
+                        orientation='h',
+                        marker_color='#d63384' if profile_num == 1 else '#0d6efd',
+                        marker_line_color='#fff',
+                        marker_line_width=1,
+                        text=[f'{val:.3f}' for val in var_values],
+                        textposition='auto',
+                        textfont=dict(size=10, color='white')
+                    )
+                ])
+                
+                bar_fig.update_layout(
+                    yaxis=dict(autorange='reversed')
+                )
+                
+                bar_fig.update_layout(
+                    title=None,
+                    yaxis_title=None,
+                    height=100,
+                    margin=dict(l=8, r=8, t=5, b=5),
+                    showlegend=False,
+                    xaxis=dict(showgrid=False, zeroline=False, title_font=dict(size=9)),
+                    yaxis=dict(showgrid=False, zeroline=False),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
+                
+                var_importance_html.append(dcc.Graph(
+                    figure=bar_fig,
+                    config={'displayModeBar': False},
+                    style={'height': '80px', 'marginBottom': '10px'}
+                ))
+            
+            # Add tree nodes for this region
+            if tree_nodes:
+                tree_nodes_html = []
+                for j, node in enumerate(tree_nodes[:3]):  # Show top 3 for each region
+                    rank_text = "1st" if node['rank'] == 1 else "2nd" if node['rank'] == 2 else "3rd" if node['rank'] == 3 else f"#{node['rank']}"
+                    tree_nodes_html.append(
+                        html.Div([
+                            html.Span(f"{rank_text} ", style={'fontSize': '11px'}),
+                            html.Span(f"Node {node['node']}: ", style={'fontSize': '10px', 'fontWeight': 'bold', 'color': '#333'}),
+                            html.Span(node['rule'], style={'fontSize': '10px', 'color': '#666'})
+                        ], style={
+                            'marginBottom': '3px',
+                            'padding': '2px 5px',
+                            'backgroundColor': '#f8f9fa',
+                            'borderRadius': '3px',
+                            'borderLeft': f'2px solid {"#d63384" if profile_num == 1 else "#0d6efd"}'
+                        })
+                    )
+                
+                var_importance_html.extend(tree_nodes_html)
+        else:
+            # Error for this region
+            error_msg = f"Decision tree analysis failed for Region {i+1}. This might be due to insufficient data or identical values."
+            var_importance_html.append(html.Div([
+                html.Span("", style={'fontSize': '12px', 'marginRight': '5px'}),
+                html.Span(error_msg, style={'fontSize': '10px', 'color': '#dc3545', 'fontStyle': 'italic'})
+            ], style={'marginBottom': '8px', 'padding': '3px 6px', 'backgroundColor': '#f8d7da', 'borderRadius': '3px', 'border': '1px solid #f5c6cb'}))
+        
+        # Add separator between regions (except for the last one)
+        if i < len(regions) - 1:
+            var_importance_html.append(html.Hr(style={'margin': '8px 0', 'borderColor': '#eee'}))
+    
+    return html.Div([
+        # Brief instruction
+        html.P("This card shows separate decision tree analyses for each selected region", 
+               style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
+        
+        # Variable Importance section
+        *var_importance_html,
+        
+        # Additional info
+        html.Hr(style={'margin': '8px 0'}),
+        html.P(f"Profile: {'Focal' if profile_num == 1 else 'Counterfactual'}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
+        html.P(f"Demographics: {profile['age']} years, {profile['gender'].title()}, {profile['race'].replace('_', ' ').title()}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
+        html.P(f"Total Regions: {len(regions)}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic'})
+    ])
+
+def get_combined_variable_importance_display(df1, df2, profile1, profile2, selected_universes_1=None, selected_universes_2=None):
+    """Generate variable importance display for combined universe selections from both profiles"""
+    # Check if both dataframes are empty
+    if df1.empty and df2.empty:
+        return html.Div([
+            html.P("This card shows the variable importance analysis", 
+                   style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
+            html.P("No analysis data available. Click 'Run Multiverse Analysis' to generate results.", 
+                   style={'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '50px'}),
+            html.Hr(style={'margin': '15px 0'}),
+            html.P("Profile: Combined Analysis", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'}),
+            html.P("Dataset Size: No data available", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'})
+        ])
+    
+    # Combine data from both profiles
+    combined_data = []
+    
+    # Process focal profile data (df1)
+    if not df1.empty:
+        df1_sorted = df1.sort_values('recidivism_prob')
+        if selected_universes_1 is not None and len(selected_universes_1) > 0:
+            try:
+                selected_universe_ids_1 = [df1_sorted.index[i] for i in selected_universes_1 if isinstance(i, int) and i < len(df1_sorted)]
+                if selected_universe_ids_1:
+                    df1_display = df1_sorted.loc[selected_universe_ids_1]
+                    combined_data.extend(df1_display.to_dict('records'))
+            except (IndexError, KeyError, TypeError):
+                pass
+    
+    # Process counterfactual profile data (df2)
+    if not df2.empty:
+        df2_sorted = df2.sort_values('recidivism_prob')
+        if selected_universes_2 is not None and len(selected_universes_2) > 0:
+            try:
+                selected_universe_ids_2 = [df2_sorted.index[i] for i in selected_universes_2 if isinstance(i, int) and i < len(df2_sorted)]
+                if selected_universe_ids_2:
+                    df2_display = df2_sorted.loc[selected_universe_ids_2]
+                    combined_data.extend(df2_display.to_dict('records'))
+            except (IndexError, KeyError, TypeError):
+                pass
+    
+    if not combined_data:
+        # No selected universes, use all data
+        if not df1.empty:
+            combined_data.extend(df1.to_dict('records'))
+        if not df2.empty:
+            combined_data.extend(df2.to_dict('records'))
+    
+    if not combined_data:
+        return html.Div([
+            html.P("No data available for analysis.", 
+                   style={'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '50px'})
+        ])
+    
+    # Convert to DataFrame for analysis
+    import pandas as pd
+    analysis_df = pd.DataFrame(combined_data)
+    
+    # Get variable importance using R decision tree
+    var_importance = get_variable_importance_r(analysis_df)
+    
+    # Get tree nodes using R analysis
+    tree_nodes = get_tree_nodes_r(analysis_df)
+    
+    # Create variable importance display
+    var_importance_html = []
+    if var_importance:
+        # Add analysis status indicator
+        focal_count = len([i for i in (selected_universes_1 or []) if isinstance(i, int) and i < len(df1)]) if not df1.empty else 0
+        cf_count = len([i for i in (selected_universes_2 or []) if isinstance(i, int) and i < len(df2)]) if not df2.empty else 0
+        
+        if focal_count > 0 or cf_count > 0:
+            status_indicator = html.Div([
+                html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
+                html.Span(f"Analyzing {focal_count + cf_count} selected universes (Focal: {focal_count}, CF: {cf_count})", 
+                         style={'fontSize': '11px', 'color': '#28a745', 'fontWeight': 'bold'})
+            ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
+            var_importance_html.append(status_indicator)
+        
+        var_importance_html.append(html.H5("Key Decisions (Combined Analysis)", style={'color': '#6c757d', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
+        var_importance_html.append(html.P("Most impactful methods on recidivism probability across both profiles:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
+        
+        # Create bar plot for top 5 variables
+        if len(var_importance) >= 1:
+            valid_vars = [(name, val) for name, val in var_importance if val is not None and val > 0]
+            if valid_vars:
+                top_vars_sorted = valid_vars[:5]
+                var_names = [var[0] for var in top_vars_sorted]
+                var_values = [var[1] for var in top_vars_sorted]
+                
+                # Create bar plot
+                bar_fig = go.Figure(data=[
+                    go.Bar(
+                        x=var_values,
+                        y=var_names,
+                        orientation='h',
+                        marker_color='#6c757d',
+                        marker_line_color='#fff',
+                        marker_line_width=1,
+                        text=[f'{val:.3f}' for val in var_values],
+                        textposition='auto',
+                        textfont=dict(size=10, color='white')
+                    )
+                ])
+                
+                bar_fig.update_layout(
+                    yaxis=dict(autorange='reversed')
+                )
+                
+                bar_fig.update_layout(
+                    title=None,
+                    yaxis_title=None,
+                    height=120,
+                    margin=dict(l=8, r=8, t=5, b=5),
+                    showlegend=False,
+                    xaxis=dict(showgrid=False, zeroline=False, title_font=dict(size=9)),
+                    yaxis=dict(showgrid=False, zeroline=False),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
+                
+                var_importance_html.append(dcc.Graph(
+                    figure=bar_fig,
+                    config={'displayModeBar': False},
+                    style={'height': '100px'}
+                ))
+        
+        # Add tree nodes section
+        if tree_nodes:
+            var_importance_html.append(html.Hr(style={'margin': '6px 0', 'borderColor': '#ddd'}))
+            var_importance_html.append(html.H5("Tree Split Rules (Combined)", style={'color': '#6c757d', 'marginTop': '6px', 'marginBottom': '5px', 'fontSize': '14px'}))
+            var_importance_html.append(html.P("Most important decision splits across both profiles:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
+            
+            # Create list of tree nodes
+            tree_nodes_html = []
+            for i, node in enumerate(tree_nodes[:5]):
+                rank_text = "1st" if node['rank'] == 1 else "2nd" if node['rank'] == 2 else "3rd" if node['rank'] == 3 else f"#{node['rank']}"
+                tree_nodes_html.append(
+                    html.Div([
+                        html.Span(f"{rank_text} ", style={'fontSize': '12px'}),
+                        html.Span(f"Node {node['node']}: ", style={'fontSize': '11px', 'fontWeight': 'bold', 'color': '#333'}),
+                        html.Span(node['rule'], style={'fontSize': '11px', 'color': '#666'})
+                    ], style={
+                        'marginBottom': '4px',
+                        'padding': '3px 6px',
+                        'backgroundColor': '#f8f9fa',
+                        'borderRadius': '4px',
+                        'borderLeft': '3px solid #6c757d'
+                    })
+                )
+            
+            var_importance_html.extend(tree_nodes_html)
+
+    else:
+        error_msg = "Decision tree analysis failed for combined universe selection. This might be due to insufficient data or identical values across all selected universes."
+        var_importance_html.append(html.Div([
+            html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
+            html.Span(error_msg, style={'fontSize': '11px', 'color': '#dc3545', 'fontStyle': 'italic'})
+        ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#f8d7da', 'borderRadius': '4px', 'border': '1px solid #f5c6cb'}))
+    
+    return html.Div([
+        # Brief instruction
+        html.P("This card shows the variable importance analysis for combined universe selections", 
+               style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
+        
+        # Variable Importance section
+        *var_importance_html,
+        
+        # Additional info
+        html.Hr(style={'margin': '8px 0'}),
+        html.P("Profile: Combined Analysis", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
+        html.P(f"Focal: {profile1['age']} years, {profile1['gender'].title()}, {profile1['race'].replace('_', ' ').title()}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
+        html.P(f"CF: {profile2['age']} years, {profile2['gender'].title()}, {profile2['race'].replace('_', ' ').title()}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
+        html.P(f"Dataset Size: {len(analysis_df)} specifications", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic'})
+    ])
+
 def get_variable_importance_display(df, profile, profile_num, selected_universes=None):
     """Generate variable importance display for a specific profile"""
     # Check if dataframe is empty (no analysis run yet)
@@ -1184,11 +2100,11 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
     if var_importance:
         # Add analysis status indicator
         if selected_universes is not None and len(selected_universes) > 0:
-            status_indicator = html.Div([
-                html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
-                html.Span(f"Analyzing {len(selected_universes)} selected universes", 
-                         style={'fontSize': '11px', 'color': '#28a745', 'fontWeight': 'bold'})
-            ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
+                status_indicator = html.Div([
+                    html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
+                    html.Span(f"Analyzing {len(selected_universes)} selected universes", 
+                             style={'fontSize': '11px', 'color': '#28a745', 'fontWeight': 'bold'})
+                ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
             var_importance_html.append(status_indicator)
         
         var_importance_html.append(html.H5(f"Key Decisions (Regression Tree){analysis_title_suffix}", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
@@ -1335,6 +2251,10 @@ def get_dataset_overview_content(df_nc, df_low_risk):
 
 
 
+# Global variables to store accumulated selections
+accumulated_selections_1 = []  # Store multiple regions for focal profile
+accumulated_selections_2 = []  # Store multiple regions for counterfactual profile
+
 # Combined callback to handle selection events and radio button clicks
 @app.callback(
     Output('selected-universes-1', 'children'),
@@ -1345,9 +2265,14 @@ def get_dataset_overview_content(df_nc, df_low_risk):
     Input('spec-curve-2', 'selectedData'),
     Input('grid-profile-switcher-1', 'value'),
     Input('grid-profile-switcher-2', 'value'),
+    State('selected-universes-1', 'children'),
+    State('selected-universes-2', 'children'),
     prevent_initial_call=True
 )
-def update_selected_universes(selected_data_1, selected_data_2, switcher_1_value, switcher_2_value):
+def update_selected_universes(selected_data_1, selected_data_2, switcher_1_value, switcher_2_value, 
+                             current_selected_1, current_selected_2):
+    global accumulated_selections_1, accumulated_selections_2
+    
     # Get the context to determine which input triggered the callback
     ctx = dash.callback_context
     if not ctx.triggered:
@@ -1359,29 +2284,35 @@ def update_selected_universes(selected_data_1, selected_data_2, switcher_1_value
         # Handle selection from specification curve 1 (Focal Profile)
         if selected_data_1 and 'points' in selected_data_1:
             selected_points = selected_data_1['points']
-            selected_indices = [point['pointIndex'] for point in selected_points if 'pointIndex' in point]
+            new_selection = [point['pointIndex'] for point in selected_points if 'pointIndex' in point]
             
-            # If there are selected universes, automatically switch to profile 1
-            if selected_indices:
-                return selected_indices, dash.no_update, 1, None  # Switch to Focal Profile
+            # Add to accumulated selections (multiple regions)
+            if new_selection:
+                accumulated_selections_1.extend(new_selection)
+                # Remove duplicates while preserving order
+                accumulated_selections_1 = list(dict.fromkeys(accumulated_selections_1))
         else:
-            selected_indices = []
+            # If no selection, clear accumulated selections for this profile
+            accumulated_selections_1 = []
         
-        return selected_indices, dash.no_update, dash.no_update, dash.no_update  # Don't change profile switcher if no selection
+        return accumulated_selections_1, dash.no_update, dash.no_update, dash.no_update
     
     elif trigger_id == 'spec-curve-2':
         # Handle selection from specification curve 2 (Counterfactual Profile)
         if selected_data_2 and 'points' in selected_data_2:
             selected_points = selected_data_2['points']
-            selected_indices = [point['pointIndex'] for point in selected_points if 'pointIndex' in point]
+            new_selection = [point['pointIndex'] for point in selected_points if 'pointIndex' in point]
             
-            # If there are selected universes, automatically switch to profile 2
-            if selected_indices:
-                return dash.no_update, selected_indices, None, 2  # Switch to Counterfactual Profile
+            # Add to accumulated selections (multiple regions)
+            if new_selection:
+                accumulated_selections_2.extend(new_selection)
+                # Remove duplicates while preserving order
+                accumulated_selections_2 = list(dict.fromkeys(accumulated_selections_2))
         else:
-            selected_indices = []
+            # If no selection, clear accumulated selections for this profile
+            accumulated_selections_2 = []
         
-        return dash.no_update, selected_indices, dash.no_update, dash.no_update  # Don't change profile switcher if no selection
+        return dash.no_update, accumulated_selections_2, dash.no_update, dash.no_update
     
     elif trigger_id == 'grid-profile-switcher-1':
         # Handle manual radio button click for Focal Profile
@@ -1393,6 +2324,40 @@ def update_selected_universes(selected_data_1, selected_data_2, switcher_1_value
     
     return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
+# Callback for clear selection buttons
+@app.callback(
+    Output('selected-universes-1', 'children', allow_duplicate=True),
+    Output('selected-universes-2', 'children', allow_duplicate=True),
+    Input('clear-selections-button', 'n_clicks'),
+    Input('clear-focal-btn', 'n_clicks'),
+    Input('clear-cf-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def clear_selections(clear_all_clicks, clear_focal_clicks, clear_cf_clicks):
+    global accumulated_selections_1, accumulated_selections_2
+    
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update, dash.no_update
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if trigger_id == 'clear-selections-button':
+        # Clear all selections
+        accumulated_selections_1 = []
+        accumulated_selections_2 = []
+        return [], []
+    elif trigger_id == 'clear-focal-btn':
+        # Clear only focal selections
+        accumulated_selections_1 = []
+        return [], dash.no_update
+    elif trigger_id == 'clear-cf-btn':
+        # Clear only counterfactual selections
+        accumulated_selections_2 = []
+        return dash.no_update, []
+    
+    return dash.no_update, dash.no_update
+
 
 
 
@@ -1400,6 +2365,12 @@ def update_selected_universes(selected_data_1, selected_data_2, switcher_1_value
 progress_updates = {"focal": [], "counterfactual": []}
 progress_counts = {"focal": 0, "counterfactual": 0}
 total_universes = 2700
+
+# Global variable to track if focal profile has been run
+focal_profile_has_been_run = False
+
+# Global variable to track the last focal profile parameters that were run
+last_focal_profile_params = None
 
 # Global variables to track selected universe analysis state
 selected_universe_analysis_active = False
@@ -1446,6 +2417,15 @@ def update_progress_bars(n_intervals):
     focal_progress = (progress_counts["focal"] / total_universes) * 100
     counterfactual_progress = (progress_counts["counterfactual"] / total_universes) * 100
     
+    # Check if both profiles are running together (same progress)
+    profiles_running_together = (progress_counts["focal"] == progress_counts["counterfactual"] and 
+                                progress_counts["focal"] > 0)
+    
+    # Check if focal profile is completed and counterfactual is running
+    focal_completed_counterfactual_running = (progress_counts["focal"] == total_universes and 
+                                            progress_counts["counterfactual"] > 0 and 
+                                            progress_counts["counterfactual"] < total_universes)
+    
     # Update focal progress bar
     focal_bar_style = {
         'width': f'{focal_progress}%',
@@ -1454,7 +2434,6 @@ def update_progress_bars(n_intervals):
         'borderRadius': '4px',
         'transition': 'width 0.3s ease'
     }
-    focal_text = f"{progress_counts['focal']}/{total_universes} universes"
     
     # Update counterfactual progress bar
     counterfactual_bar_style = {
@@ -1464,7 +2443,17 @@ def update_progress_bars(n_intervals):
         'borderRadius': '4px',
         'transition': 'width 0.3s ease'
     }
-    counterfactual_text = f"{progress_counts['counterfactual']}/{total_universes} universes"
+    
+    # Update text based on analysis status
+    if profiles_running_together:
+        focal_text = f"Running together: {progress_counts['focal']}/{total_universes} universes"
+        counterfactual_text = f"Running together: {progress_counts['counterfactual']}/{total_universes} universes"
+    elif focal_completed_counterfactual_running:
+        focal_text = f"Completed (reused): {progress_counts['focal']}/{total_universes} universes"
+        counterfactual_text = f"Running: {progress_counts['counterfactual']}/{total_universes} universes"
+    else:
+        focal_text = f"{progress_counts['focal']}/{total_universes} universes"
+        counterfactual_text = f"{progress_counts['counterfactual']}/{total_universes} universes"
     
     return focal_bar_style, focal_text, counterfactual_bar_style, counterfactual_text
 
@@ -1482,6 +2471,7 @@ def update_progress_bars(n_intervals):
     Output('variable-importance-title-2', 'style'),
     Output('variable-importance-content-2', 'children'),
     Output('dataset-overview-content', 'children'),
+    Output('selection-status-indicator', 'children'),
     Input('submit-profiles-button', 'n_clicks'),
     Input('selected-universes-1', 'children'),
     Input('selected-universes-2', 'children'),
@@ -1498,6 +2488,7 @@ def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switche
                     age_1, gender_1, race_1, age_2, gender_2, race_2):
     global current_grid_profile, df_nc, df_low_risk
     global selected_universe_analysis_active, selected_universe_analysis_profile, selected_universe_analysis_data
+    global focal_profile_has_been_run, last_focal_profile_params
     
     try:
         # Handle None values for selected universes
@@ -1523,17 +2514,62 @@ def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switche
             
             # If submit button was clicked, run the multiverse analysis
             if trigger_id == 'submit-profiles-button':
-                print("Submit button clicked - running sequential multiverse analysis...")
-                # Run analyses sequentially with proper progress tracking
-                focal_results = run_multiverse_analysis_with_profile(age_1, gender_1, race_1)
-                counterfactual_results = run_multiverse_analysis_with_profile(age_2, gender_2, race_2)
-                print("Sequential multiverse analysis completed!")
+                print("Submit button clicked - checking profile characteristics...")
                 
-                # Store results globally for use in charts
-                if focal_results is not None:
-                    df_nc = focal_results
-                if counterfactual_results is not None:
-                    df_low_risk = counterfactual_results
+                # Check if profiles are identical
+                profiles_identical = profiles_are_identical(age_1, gender_1, race_1, age_2, gender_2, race_2)
+                
+                if profiles_identical:
+                    print("Profiles are identical - running shared analysis...")
+                    # Run analysis once and use results for both profiles
+                    shared_results = run_multiverse_analysis_with_profile(age_1, gender_1, race_1, is_shared_analysis=True)
+                    
+                    # Store the same results for both profiles
+                    if shared_results is not None:
+                        df_nc = shared_results
+                        df_low_risk = shared_results
+                        focal_profile_has_been_run = True  # Mark focal as run
+                        last_focal_profile_params = (age_1, gender_1, race_1)  # Store parameters
+                        print("Shared analysis completed - both profiles use same results!")
+                    else:
+                        print("Shared analysis failed!")
+                else:
+                    print("Profiles are different - checking if focal profile needs to be run...")
+                    
+                    # Check if focal profile has been run with the same parameters
+                    current_focal_params = (age_1, gender_1, race_1)
+                    focal_profile_params = (age_1 == 25 and gender_1 == "male" and race_1 == "caucasian")
+                    
+                    if (focal_profile_has_been_run and not df_nc.empty and 
+                        (focal_profile_params or current_focal_params == last_focal_profile_params)):
+                        print("Focal profile already run - reusing results, running only counterfactual analysis...")
+                        # Set focal progress to completed since we're reusing results
+                        progress_counts["focal"] = total_universes
+                        progress_updates["focal"].append("Focal profile results reused from previous analysis")
+                        
+                        # Reuse existing focal results, only run counterfactual
+                        counterfactual_results = run_multiverse_analysis_with_profile(age_2, gender_2, race_2)
+                        
+                        if counterfactual_results is not None:
+                            df_low_risk = counterfactual_results
+                            print("Counterfactual analysis completed - focal results reused!")
+                        else:
+                            print("Counterfactual analysis failed!")
+                    else:
+                        print("Running sequential multiverse analysis...")
+                        # Run analyses sequentially with proper progress tracking
+                        focal_results = run_multiverse_analysis_with_profile(age_1, gender_1, race_1)
+                        counterfactual_results = run_multiverse_analysis_with_profile(age_2, gender_2, race_2)
+                        print("Sequential multiverse analysis completed!")
+                        
+                        # Store results globally for use in charts
+                        if focal_results is not None:
+                            df_nc = focal_results
+                            # Mark focal as run and store parameters
+                            focal_profile_has_been_run = True
+                            last_focal_profile_params = current_focal_params
+                        if counterfactual_results is not None:
+                            df_low_risk = counterfactual_results
                 
                 # Reset selected universe analysis state when new analysis is run
                 selected_universe_analysis_active = False
@@ -1549,36 +2585,36 @@ def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switche
                         print(f"Profile switcher changed to: Counterfactual Profile")
                 else:
                     # Handle selection changes - automatically activate analysis for new selections
-                    current_selection = selected_1 if trigger_id == 'selected-universes-1' else selected_2
-                    profile_num = 1 if trigger_id == 'selected-universes-1' else 2
-                    
-                    # Normalize selections for comparison (handle None vs empty list)
-                    current_selection_normalized = current_selection if current_selection is not None else []
-                    stored_selection_normalized = selected_universe_analysis_data if selected_universe_analysis_data is not None else []
-                    
-                    # If user has selected universes, automatically activate analysis
-                    if len(current_selection_normalized) > 0:
-                        # Check if this is a new selection or change in selection
-                        if (current_selection_normalized != stored_selection_normalized or 
-                            not selected_universe_analysis_active or 
-                            selected_universe_analysis_profile != profile_num):
-                            
-                            # Activate analysis for the selected universes
-                            selected_universe_analysis_active = True
-                            selected_universe_analysis_profile = profile_num
-                            selected_universe_analysis_data = current_selection_normalized
-                            print(f"Auto-activating decision tree analysis for profile {profile_num} with {len(current_selection_normalized)} selected universes")
+                        current_selection = selected_1 if trigger_id == 'selected-universes-1' else selected_2
+                        profile_num = 1 if trigger_id == 'selected-universes-1' else 2
+                        
+                        # Normalize selections for comparison (handle None vs empty list)
+                        current_selection_normalized = current_selection if current_selection is not None else []
+                        stored_selection_normalized = selected_universe_analysis_data if selected_universe_analysis_data is not None else []
+                        
+                        # If user has selected universes, automatically activate analysis
+                        if len(current_selection_normalized) > 0:
+                            # Check if this is a new selection or change in selection
+                            if (current_selection_normalized != stored_selection_normalized or 
+                                not selected_universe_analysis_active or 
+                                selected_universe_analysis_profile != profile_num):
+                                
+                                # Activate analysis for the selected universes
+                                selected_universe_analysis_active = True
+                                selected_universe_analysis_profile = profile_num
+                                selected_universe_analysis_data = current_selection_normalized
+                                print(f"Auto-activating decision tree analysis for profile {profile_num} with {len(current_selection_normalized)} selected universes")
+                            else:
+                                print(f"Selection unchanged, preserving analysis state (profile {profile_num}, {len(current_selection_normalized)} universes)")
                         else:
-                            print(f"Selection unchanged, preserving analysis state (profile {profile_num}, {len(current_selection_normalized)} universes)")
-                    else:
-                        # No universes selected, reset to default analysis
-                        if selected_universe_analysis_active:
-                            selected_universe_analysis_active = False
-                            selected_universe_analysis_profile = None
-                            selected_universe_analysis_data = None
-                            print("No universes selected, resetting to default analysis")
-                        else:
-                            print("No universes selected, using default analysis")
+                            # No universes selected, reset to default analysis
+                            if selected_universe_analysis_active:
+                                selected_universe_analysis_active = False
+                                selected_universe_analysis_profile = None
+                                selected_universe_analysis_data = None
+                                print("No universes selected, resetting to default analysis")
+                            else:
+                                print("No universes selected, using default analysis")
         
         # Create profile dictionaries with demographic values
         profile1 = {
@@ -1595,42 +2631,77 @@ def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switche
         
         # Create all the figures and content for both profiles
         # Profile 1 uses nc_multiverse.csv, Profile 2 uses low_risk_multiverse.csv
-        # Only recreate curves if not triggered by selection events or profile switcher
-        if ctx.triggered and ctx.triggered[0]['prop_id'].split('.')[0] in ['selected-universes-1', 'selected-universes-2', 'grid-profile-switcher-1', 'grid-profile-switcher-2']:
-            # For selection events or profile switcher, return the current curves to preserve selection
-            spec_curve_1 = dash.no_update
-            spec_curve_2 = dash.no_update
-        else:
-            # For other triggers, recreate curves
-            spec_curve_1 = create_specification_curve(df_nc, profile1, 1)
-            spec_curve_2 = create_specification_curve(df_low_risk, profile2, 2)
+        # Always recreate curves to show previously selected regions
+        # This ensures users can see their accumulated selections
+        spec_curve_1 = create_specification_curve(df_nc, profile1, 1, selected_1)
+        spec_curve_2 = create_specification_curve(df_low_risk, profile2, 2, selected_2)
         
         
-        # Create the combined specification grid based on profile switcher selection
-        # Determine which profile is selected based on radio button values
-        if grid_profile_switcher_1 == 1:
-            # Focal profile is selected
-            selected_universes = selected_1 if selected_1 is not None else []
+        # Create the combined specification grid
+        # Check if both profiles have selections
+        has_focal_selection = selected_1 is not None and len(selected_1) > 0
+        has_cf_selection = selected_2 is not None and len(selected_2) > 0
+        
+        if has_focal_selection and has_cf_selection:
+            # Both profiles have selections - show combined view
+            combined_spec_grid = create_combined_specification_grid(df_nc, df_low_risk, selected_1, selected_2)
+        elif has_focal_selection:
+            # Only focal profile has selection
+            combined_spec_grid = create_specification_grid(df_nc, 1, selected_1)
+        elif has_cf_selection:
+            # Only counterfactual profile has selection
+            combined_spec_grid = create_specification_grid(df_low_risk, 2, selected_2)
+        elif grid_profile_switcher_1 == 1:
+            # Focal profile is selected via radio button
+                selected_universes = selected_1 if selected_1 is not None else []
             combined_spec_grid = create_specification_grid(df_nc, 1, selected_universes)
         elif grid_profile_switcher_2 == 2:
-            # Counterfactual profile is selected
-            selected_universes = selected_2 if selected_2 is not None else []
+            # Counterfactual profile is selected via radio button
+                selected_universes = selected_2 if selected_2 is not None else []
             combined_spec_grid = create_specification_grid(df_low_risk, 2, selected_universes)
         else:
             # Default to focal profile if neither is explicitly selected
-            selected_universes = selected_1 if selected_1 is not None else []
+                selected_universes = selected_1 if selected_1 is not None else []
             combined_spec_grid = create_specification_grid(df_nc, 1, selected_universes)
         
-        # Set variable importance content for both profiles independently
-        # Profile 1 (Focal) variable importance
+        # Set variable importance content based on selection state
+        if has_focal_selection and has_cf_selection:
+            # Both profiles have selections - show combined analysis in first card and counterfactual in second card
+            variable_importance_title_1 = "Combined Variable Importance"
+            variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#6c757d', 'fontSize': '14px'}
+            variable_importance_content_1 = get_combined_variable_importance_display(df_nc, df_low_risk, profile1, profile2, selected_1, selected_2)
+            
+            # Show counterfactual analysis in the second card
+            variable_importance_title_2 = "Counterfactual Variable Importance"
+            variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
+            variable_importance_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+        elif has_focal_selection:
+            # Only focal profile has selection - use regional analysis
+            variable_importance_title_1 = "Focal Variable Importance (Regional)"
+            variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
+            variable_importance_content_1 = get_regional_variable_importance_display(df_nc, profile1, 1, selected_1)
+            
+            variable_importance_title_2 = "CF Variable Importance"
+            variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
+            variable_importance_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+        elif has_cf_selection:
+            # Only counterfactual profile has selection - use regional analysis
         variable_importance_title_1 = "Focal Variable Importance"
         variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
-        variable_importance_content_1 = get_variable_importance_display(df_nc, profile1, 1, selected_1)
-        
-        # Profile 2 (Counterfactual) variable importance
+            variable_importance_content_1 = get_variable_importance_display(df_nc, profile1, 1, selected_1)
+            
+            variable_importance_title_2 = "CF Variable Importance (Regional)"
+            variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
+            variable_importance_content_2 = get_regional_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+        else:
+            # Show individual profile analyses
+            variable_importance_title_1 = "Focal Variable Importance"
+            variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
+            variable_importance_content_1 = get_variable_importance_display(df_nc, profile1, 1, selected_1)
+            
         variable_importance_title_2 = "CF Variable Importance"
         variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
-        variable_importance_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+            variable_importance_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
     
         profile1_summary = get_profile_summary(profile1)
         profile2_summary = get_profile_summary(profile2)
@@ -1639,10 +2710,94 @@ def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switche
         # Generate dataset overview content
         dataset_overview_content = get_dataset_overview_content(df_nc, df_low_risk)
         
+        # Generate selection status indicator
+        has_focal_selection = selected_1 is not None and len(selected_1) > 0
+        has_cf_selection = selected_2 is not None and len(selected_2) > 0
+        
+        if has_focal_selection and has_cf_selection:
+            focal_count = len(selected_1)
+            cf_count = len(selected_2)
+            
+            # Check for multiple regions in focal profile
+            if not df_nc.empty:
+                df_sorted = df_nc.sort_values('recidivism_prob')
+                focal_regions = identify_regions(selected_1, df_sorted)
+                region_info = f" ({len(focal_regions)} region{'s' if len(focal_regions) > 1 else ''})" if len(focal_regions) > 1 else ""
+            else:
+                region_info = ""
+            
+            # Get region count for focal profile
+            if not df_nc.empty:
+                df_sorted = df_nc.sort_values('recidivism_prob')
+                focal_regions = identify_regions(selected_1, df_sorted)
+                focal_region_count = len(focal_regions)
+            else:
+                focal_region_count = 1
+            
+            # Get region count for counterfactual profile
+            if not df_low_risk.empty:
+                df_sorted_cf = df_low_risk.sort_values('recidivism_prob')
+                cf_regions = identify_regions(selected_2, df_sorted_cf)
+                cf_region_count = len(cf_regions)
+            else:
+                cf_region_count = 1
+            
+            selection_status = html.Div([
+                html.Span("🔗 ", style={'fontSize': '14px'}),
+                html.Span(f"Combined Selection Active: {focal_count} Focal ({focal_region_count} region{'s' if focal_region_count > 1 else ''}) + {cf_count} CF ({cf_region_count} region{'s' if cf_region_count > 1 else ''})", 
+                         style={'fontWeight': 'bold', 'color': '#28a745'})
+            ])
+        elif has_focal_selection:
+            focal_count = len(selected_1)
+            
+            # Check for multiple regions in focal profile
+            if not df_nc.empty:
+                df_sorted = df_nc.sort_values('recidivism_prob')
+                focal_regions = identify_regions(selected_1, df_sorted)
+                region_info = f" ({len(focal_regions)} region{'s' if len(focal_regions) > 1 else ''})" if len(focal_regions) > 1 else ""
+            else:
+                region_info = ""
+            
+            # Get region count for more detailed info
+            if not df_nc.empty:
+                df_sorted = df_nc.sort_values('recidivism_prob')
+                focal_regions = identify_regions(selected_1, df_sorted)
+                region_count = len(focal_regions)
+            else:
+                region_count = 1
+            
+            selection_status = html.Div([
+                html.Span("🎯 ", style={'fontSize': '14px'}),
+                html.Span(f"Focal Selection Active: {focal_count} universes in {region_count} region{'s' if region_count > 1 else ''}", 
+                         style={'fontWeight': 'bold', 'color': '#d63384'})
+            ])
+        elif has_cf_selection:
+            cf_count = len(selected_2)
+            
+            # Check for multiple regions in counterfactual profile
+            if not df_low_risk.empty:
+                df_sorted = df_low_risk.sort_values('recidivism_prob')
+                cf_regions = identify_regions(selected_2, df_sorted)
+                cf_region_count = len(cf_regions)
+            else:
+                cf_region_count = 1
+            
+            selection_status = html.Div([
+                html.Span("🔄 ", style={'fontSize': '14px'}),
+                html.Span(f"Counterfactual Selection Active: {cf_count} universes in {cf_region_count} region{'s' if cf_region_count > 1 else ''}", 
+                         style={'fontWeight': 'bold', 'color': '#0d6efd'})
+            ])
+        else:
+            selection_status = html.Div([
+                html.Span("📊 ", style={'fontSize': '14px'}),
+                html.Span("No selections - showing all universes", 
+                         style={'color': '#6c757d'})
+            ])
+        
         return (spec_curve_1, spec_curve_2, combined_spec_grid, profile1_summary, profile2_summary, 
                 variable_importance_title_1, variable_importance_title_style_1, variable_importance_content_1,
                 variable_importance_title_2, variable_importance_title_style_2, variable_importance_content_2,
-                dataset_overview_content)
+                dataset_overview_content, selection_status)
     
     except Exception as e:
         print(f"Error in update_dashboard: {e}")
@@ -1656,7 +2811,7 @@ def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switche
                 html.Div("Error"), html.Div("Error"), 
                 "Error", {}, html.Div("Error"),
                 "Error", {}, html.Div("Error"),
-                html.Div("Error"))
+                html.Div("Error"), html.Div("Error"))
 
 
 
