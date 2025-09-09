@@ -350,10 +350,6 @@ def create_layout():
                     # Profile 1 - Focal
                     html.Div([
                         html.Div("Focal (Locked)", style={'textAlign': 'center', 'marginBottom': '8px', 'fontSize': '12px', 'color': 'white', 'fontWeight': 'bold', 'backgroundColor': '#d63384', 'padding': '4px 8px', 'borderRadius': '12px'}),
-                        html.Div(
-                            id='selected-profile-summary-1',
-                            style={'padding': '8px', 'border': '1px solid #eee', 'borderRadius': '5px', 'backgroundColor': '#fff0f5', 'marginBottom': '12px'}
-                        ),
                         
                         html.Div([
                             html.Label("Age:", style={'fontSize': '14px', 'marginBottom': '4px'}),
@@ -410,10 +406,6 @@ def create_layout():
                     # Profile 2 - Counterfactual
                     html.Div([
                         html.Div("Counterfactual", style={'textAlign': 'center', 'marginBottom': '8px', 'fontSize': '12px', 'color': 'white', 'fontWeight': 'bold', 'backgroundColor': '#0d6efd', 'padding': '4px 8px', 'borderRadius': '12px'}),
-                        html.Div(
-                            id='selected-profile-summary-2',
-                            style={'padding': '8px', 'border': '1px solid #eee', 'borderRadius': '5px', 'backgroundColor': '#f0f8ff', 'marginBottom': '12px'}
-                        ),
                         
                         html.Div([
                             html.Label("Age:", style={'fontSize': '14px', 'marginBottom': '4px'}),
@@ -919,39 +911,39 @@ def create_specification_curve(df, profile, profile_num, previously_selected=Non
     legend_annotations = []
     if previously_selected and len(previously_selected) > 0:
         regions = identify_regions(previously_selected, df_plot)
-        if len(regions) > 1:
-            legend_annotations.append(
-                dict(
-                    x=0.02, y=0.98,
-                    xref='paper', yref='paper',
-                    text="🟡 Previously Selected Regions<br>🟠 Region Boundaries",
-                    showarrow=False,
-                    font=dict(size=10, color='#666'),
-                    bgcolor='rgba(255, 255, 255, 0.8)',
-                    bordercolor='#ccc',
-                    borderwidth=1
-                )
-            )
-        else:
-            legend_annotations.append(
-                dict(
-                    x=0.02, y=0.98,
-                    xref='paper', yref='paper',
-                    text="🟡 Previously Selected Region<br>🟠 Region Boundaries",
-                    showarrow=False,
-                    font=dict(size=10, color='#666'),
-                    bgcolor='rgba(255, 255, 255, 0.8)',
-                    bordercolor='#ccc',
-                    borderwidth=1
-                )
-            )
+        # if len(regions) > 1:
+        #     legend_annotations.append(
+        #         dict(
+        #             x=0.02, y=0.98,
+        #             xref='paper', yref='paper',
+        #             text="🟡 Previously Selected Regions<br>🟠 Region Boundaries",
+        #             showarrow=False,
+        #             font=dict(size=10, color='#666'),
+        #             bgcolor='rgba(255, 255, 255, 0.8)',
+        #             bordercolor='#ccc',
+        #             borderwidth=1
+        #         )
+        #     )
+        # else:
+        #     legend_annotations.append(
+        #         dict(
+        #             x=0.02, y=0.98,
+        #             xref='paper', yref='paper',
+        #             text="🟡 Previously Selected Region<br>🟠 Region Boundaries",
+        #             showarrow=False,
+        #             font=dict(size=10, color='#666'),
+        #             bgcolor='rgba(255, 255, 255, 0.8)',
+        #             bordercolor='#ccc',
+        #             borderwidth=1
+        #         )
+        #     )
     
     fig.update_layout(
         title=f'{profile_name}',
         xaxis_title='Universe Index',
         yaxis_title='Recidivism Probability',
         height=400,
-        showlegend=True,
+        showlegend=False,
         hovermode='x unified',
         dragmode='select',  # Enable selection mode by default
         yaxis=dict(
@@ -1009,7 +1001,6 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
     universe_labels = []
     profile_colors = []
     region_info = []  # Track which region each universe belongs to
-    profile_values = []  # Track profile values for coloring (1 for focal, 2 for counterfactual)
     
     # Process focal profile data (df1)
     if not df1.empty:
@@ -1036,12 +1027,13 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
             combined_data.append(row)
             universe_labels.append(f"F{i}")
             profile_colors.append('#d63384')  # Pink for focal
-            profile_values.append(1)  # 1 for focal profile
             
             # Determine which region this universe belongs to
+            # Map the display index back to the original sorted index
+            original_index = df1_sorted.index.get_loc(row.name)
             region_num = 1
             for j, region in enumerate(focal_regions):
-                if i in region:
+                if original_index in region:
                     region_num = j + 1
                     break
             region_info.append(f"Focal Region {region_num}")
@@ -1071,12 +1063,13 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
             combined_data.append(row)
             universe_labels.append(f"CF{i}")
             profile_colors.append('#0d6efd')  # Blue for counterfactual
-            profile_values.append(2)  # 2 for counterfactual profile
             
             # Determine which region this universe belongs to
+            # Map the display index back to the original sorted index
+            original_index = df2_sorted.index.get_loc(row.name)
             region_num = 1
             for j, region in enumerate(cf_regions):
-                if i in region:
+                if original_index in region:
                     region_num = j + 1
                     break
             region_info.append(f"CF Region {region_num}")
@@ -1122,7 +1115,7 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
             y_labels.append(f"    {option}")
             row = []
             
-            for i, data_row in enumerate(combined_data):
+            for data_row in combined_data:
                 # Determine if this option is selected for this universe
                 if choice_name == 'define_recid_method':
                     selected = data_row['define_recid_method'] == option
@@ -1139,12 +1132,10 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
                 else:
                     selected = False
                 
-                # Use profile-specific values for coloring
+                # Binary selection: 1 if selected, 0.5 if not
                 if selected:
-                    # Use profile value (1 for focal, 2 for counterfactual) for selected items
-                    row.append(profile_values[i])
+                    row.append(1)
                 else:
-                    # Use 0.5 for unselected items
                     row.append(0.5)
             
             grid_data.append(row)
@@ -1154,12 +1145,11 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
         header_row = [0] * len(combined_data)
         grid_data.append(header_row)
     
-    # Create colorscale for combined view with profile-specific colors
+    # Create colorscale for combined view
     colorscale = [
         [0, '#e9ecef'],    # Gray for category headers
         [0.5, '#ffffff'],  # White for unselected
-        [1, '#d63384'],    # Pink for focal profile selected items
-        [2, '#0d6efd']     # Blue for counterfactual profile selected items
+        [1, '#6c757d']     # Gray for selected (neutral color for combined view)
     ]
     
     # Create the heatmap
@@ -1172,12 +1162,12 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
         hoverongaps=False,
         hoverinfo='z',
         zmin=0,
-        zmax=2
+        zmax=1
     ))
     
     # Add region separators
     if len(combined_data) > 1:
-        # Find region boundaries
+        # Find region boundaries - add separators between different regions
         region_boundaries = []
         current_region = region_info[0] if region_info else ""
         
@@ -1203,7 +1193,7 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
             if i == len(region_info) or region_info[i] != current_region:
                 # End of current region, add background
                 if i > region_start:
-                    region_color = 'rgba(255, 165, 0, 0.1)' if 'Focal' in current_region else 'rgba(0, 123, 255, 0.1)'
+                    region_color = 'rgba(220, 53, 69, 0.1)' if 'Focal' in current_region else 'rgba(0, 123, 255, 0.1)'
                     fig.add_shape(
                         type="rect",
                         x0=region_start - 0.5, x1=i - 0.5,
@@ -1381,7 +1371,7 @@ def create_specification_grid(df, profile_num, selected_universes=None):
                 # Simple binary selection: 1 if selected, 0.5 if not
                 if selected:
                     row.append(1)
-                        else:
+                else:
                     row.append(0.5)
             
             grid_data.append(row)
@@ -1465,7 +1455,7 @@ def create_specification_grid(df, profile_num, selected_universes=None):
             if region_idx != current_region_idx or i == len(df_display) - 1:
                 # End of current region, add background
                 if i > region_start:
-                    region_color = 'rgba(255, 165, 0, 0.1)'
+                    region_color = 'rgba(220, 53, 69, 0.1)'
                     fig.add_shape(
                         type="rect",
                         x0=region_start - 0.5, x1=i - 0.5,
@@ -1481,7 +1471,7 @@ def create_specification_grid(df, profile_num, selected_universes=None):
     # Add a legend for the current view
     if selected_universes is not None and len(selected_universes) > 0:
         region_count = len(regions)
-                legend_text = f"Showing {len(selected_universes)} Selected Universes"
+        legend_text = f"Showing {len(selected_universes)} Selected Universes"
         if region_count > 1:
             legend_text += f" in {region_count} regions"
         legend_color = '#d63384' if profile_num == 1 else '#0d6efd'
@@ -1868,8 +1858,6 @@ def get_regional_variable_importance_display(df, profile, profile_num, selected_
         
         # Additional info
         html.Hr(style={'margin': '8px 0'}),
-        html.P(f"Profile: {'Focal' if profile_num == 1 else 'Counterfactual'}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
-        html.P(f"Demographics: {profile['age']} years, {profile['gender'].title()}, {profile['race'].replace('_', ' ').title()}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
         html.P(f"Total Regions: {len(regions)}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic'})
     ])
 
@@ -2059,8 +2047,6 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
             html.P("No analysis data available. Click 'Run Multiverse Analysis' to generate results.", 
                    style={'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '50px'}),
             html.Hr(style={'margin': '15px 0'}),
-            html.P(f"Profile: {'Focal' if profile_num == 1 else 'Counterfactual'}", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'}),
-            html.P(f"Demographics: {profile['age']} years, {profile['gender'].title()}, {profile['race'].replace('_', ' ').title()}", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'}),
             html.P(f"Dataset Size: No data available", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'})
         ])
     
@@ -2100,11 +2086,11 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
     if var_importance:
         # Add analysis status indicator
         if selected_universes is not None and len(selected_universes) > 0:
-                status_indicator = html.Div([
-                    html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
-                    html.Span(f"Analyzing {len(selected_universes)} selected universes", 
-                             style={'fontSize': '11px', 'color': '#28a745', 'fontWeight': 'bold'})
-                ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
+            status_indicator = html.Div([
+                html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
+                html.Span(f"Analyzing {len(selected_universes)} selected universes", 
+                            style={'fontSize': '11px', 'color': '#28a745', 'fontWeight': 'bold'})
+            ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
             var_importance_html.append(status_indicator)
         
         var_importance_html.append(html.H5(f"Key Decisions (Regression Tree){analysis_title_suffix}", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
@@ -2213,8 +2199,6 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
         
         # Additional info
         html.Hr(style={'margin': '8px 0'}),
-        html.P(f"Profile: {'Focal' if profile_num == 1 else 'Counterfactual'}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
-        html.P(f"Demographics: {profile['age']} years, {profile['gender'].title()}, {profile['race'].replace('_', ' ').title()}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
         html.P(f"Dataset Size: {len(analysis_df)} specifications{analysis_title_suffix}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic'})
     ])
 
@@ -2462,8 +2446,6 @@ def update_progress_bars(n_intervals):
     Output('spec-curve-1', 'figure'),
     Output('spec-curve-2', 'figure'),
     Output('combined-spec-grid', 'figure'),
-    Output('selected-profile-summary-1', 'children'),
-    Output('selected-profile-summary-2', 'children'),
     Output('variable-importance-title-1', 'children'),
     Output('variable-importance-title-1', 'style'),
     Output('variable-importance-content-1', 'children'),
@@ -2653,15 +2635,15 @@ def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switche
             combined_spec_grid = create_specification_grid(df_low_risk, 2, selected_2)
         elif grid_profile_switcher_1 == 1:
             # Focal profile is selected via radio button
-                selected_universes = selected_1 if selected_1 is not None else []
+            selected_universes = selected_1 if selected_1 is not None else []
             combined_spec_grid = create_specification_grid(df_nc, 1, selected_universes)
         elif grid_profile_switcher_2 == 2:
             # Counterfactual profile is selected via radio button
-                selected_universes = selected_2 if selected_2 is not None else []
+            selected_universes = selected_2 if selected_2 is not None else []
             combined_spec_grid = create_specification_grid(df_low_risk, 2, selected_universes)
         else:
             # Default to focal profile if neither is explicitly selected
-                selected_universes = selected_1 if selected_1 is not None else []
+            selected_universes = selected_1 if selected_1 is not None else []
             combined_spec_grid = create_specification_grid(df_nc, 1, selected_universes)
         
         # Set variable importance content based on selection state
@@ -2686,8 +2668,8 @@ def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switche
             variable_importance_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
         elif has_cf_selection:
             # Only counterfactual profile has selection - use regional analysis
-        variable_importance_title_1 = "Focal Variable Importance"
-        variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
+            variable_importance_title_1 = "Focal Variable Importance"
+            variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
             variable_importance_content_1 = get_variable_importance_display(df_nc, profile1, 1, selected_1)
             
             variable_importance_title_2 = "CF Variable Importance (Regional)"
@@ -2699,12 +2681,10 @@ def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switche
             variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
             variable_importance_content_1 = get_variable_importance_display(df_nc, profile1, 1, selected_1)
             
-        variable_importance_title_2 = "CF Variable Importance"
-        variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
+            variable_importance_title_2 = "CF Variable Importance"
+            variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
             variable_importance_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
-    
-        profile1_summary = get_profile_summary(profile1)
-        profile2_summary = get_profile_summary(profile2)
+        
         
         
         # Generate dataset overview content
@@ -2794,7 +2774,7 @@ def update_dashboard(submit_clicks, selected_1, selected_2, grid_profile_switche
                          style={'color': '#6c757d'})
             ])
         
-        return (spec_curve_1, spec_curve_2, combined_spec_grid, profile1_summary, profile2_summary, 
+        return (spec_curve_1, spec_curve_2, combined_spec_grid, 
                 variable_importance_title_1, variable_importance_title_style_1, variable_importance_content_1,
                 variable_importance_title_2, variable_importance_title_style_2, variable_importance_content_2,
                 dataset_overview_content, selection_status)
