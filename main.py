@@ -186,7 +186,7 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
             split_options = robjects.StrVector(["1:2", "6:4", "7:3", "8:2"])
             age_cat_options = robjects.StrVector(["raw_age_year", "age_cat_compas", "age_cat_nij"])
             imbalancing_options = robjects.StrVector(["Undersampling", "Oversampling", "Male Only", "Female Only", "Weighting"])
-            predictor_options = robjects.StrVector(["full", "final", "protected"])
+            predictor_options = robjects.StrVector(["full", "schmidt", "protected"])
             define_recid_options = robjects.StrVector(["1yr", "2yr", "3yr", "4yr", "5yr"])
             
             # Convert profile parameters to R types
@@ -280,7 +280,7 @@ PREPROCESSING_OPTIONS = [{'label': method, 'value': method} for method in ["Meth
 SPLIT_OPTIONS = [{'label': split, 'value': split} for split in ["1:2", "6:4", "7:3", "8:2"]]
 AGE_CATEGORY_OPTIONS = [{'label': age_cat, 'value': age_cat} for age_cat in ["raw_age_year", "age_cat_compas", "age_cat_nij"]]
 IMBALANCING_OPTIONS = [{'label': method, 'value': method} for method in ["Undersampling", "Oversampling", "Male Only", "Female Only", "Weighting"]]
-PREDICTOR_OPTIONS = [{'label': method, 'value': method} for method in ["full", "final", "protected"]]
+PREDICTOR_OPTIONS = [{'label': method, 'value': method} for method in ["full", "schmidt", "protected"]]
 RECID_METHOD_OPTIONS = [{'label': method, 'value': method} for method in ["1yr", "2yr", "3yr", "4yr", "5yr"]]
 
 # Initialize the Dash app
@@ -389,7 +389,7 @@ def create_layout():
                                 min=0,
                                 max=100,
                                 step=1,
-                                value=35,
+                                value=25,
                                 marks={0: '0', 25: '25', 50: '50', 75: '75', 100: '100'},
                                 tooltip={'placement': 'bottom', 'always_visible': True}
                             ),
@@ -403,7 +403,7 @@ def create_layout():
                                     {'label': 'Female', 'value': 'female'},
                                     {'label': 'Male', 'value': 'male'}
                                 ],
-                                value='female',
+                                value='male',
                                 clearable=False
                             ),
                         ], style={'marginBottom': '12px'}),
@@ -420,7 +420,7 @@ def create_layout():
                                     {'label': 'Hispanic', 'value': 'hispanic'},
                                     {'label': 'Other', 'value': 'other'}
                                 ],
-                                value='african_american',
+                                value='caucasian',
                                 clearable=False
                             ),
                         ], style={'marginBottom': '12px'}),
@@ -503,7 +503,7 @@ def create_layout():
                 
                 # Dataset Overview Section
                 html.Div([
-                    html.H5("Dataset Overview", style={'textAlign': 'center', 'marginBottom': '10px', 'fontSize': '14px', 'color': '#333'}),
+                    html.H5("Method Combinations Overview", style={'textAlign': 'center', 'marginBottom': '10px', 'fontSize': '14px', 'color': '#333'}),
                     html.Div(
                         id='dataset-overview-content',
                         style={
@@ -846,7 +846,7 @@ def create_specification_grid(df, profile_num, selected_universes=None):
         # Recidivism time periods (grouped together)
         ('define_recid_method', ['5yr', '4yr', '3yr', '2yr', '1yr']),
         # Predictor methods (grouped together)
-        ('predictor_method', ['protected', 'final', 'full']),
+        ('predictor_method', ['protected', 'schmidt', 'full']),
         # Imbalancing methods (grouped together)
         ('imbalancing_method', ['Female Only', 'Male Only', 'Oversampling', 'Undersampling', 'Weighting']),
         # Age categories (grouped together)
@@ -1191,7 +1191,7 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
             ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
             var_importance_html.append(status_indicator)
         
-        var_importance_html.append(html.H5(f"Key Decisions (Regression Tree){analysis_title_suffix}", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '6px'}))
+        var_importance_html.append(html.H5(f"Key Decisions (Regression Tree){analysis_title_suffix}", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
         var_importance_html.append(html.P("Most impactful methods on recidivism probability:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
         
         # Create bar plot for top 5 variables
@@ -1252,7 +1252,7 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
         # Add tree nodes section
         if tree_nodes:
             var_importance_html.append(html.Hr(style={'margin': '6px 0', 'borderColor': '#ddd'}))
-            var_importance_html.append(html.H5(f"Tree Split Rules{analysis_title_suffix}", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '6px', 'marginBottom': '5px'}))
+            var_importance_html.append(html.H5(f"Tree Split Rules{analysis_title_suffix}", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '6px', 'marginBottom': '5px', 'fontSize': '14px'}))
             var_importance_html.append(html.P("Most important decision splits in the regression tree:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
             
             # Create list of tree nodes
@@ -1317,14 +1317,14 @@ def get_dataset_overview_content(df_nc, df_low_risk):
     total_specs = len(df_nc) + len(df_low_risk) if not df_nc.empty and not df_low_risk.empty else len(df)
     
     return html.Div([
-        html.P("Method Combinations", style={'fontSize': '12px', 'color': '#333', 'marginBottom': '8px', 'fontWeight': 'bold', 'textAlign': 'center'}),
-        html.P(f"Total Specifications: {total_specs}", style={'fontSize': '11px', 'marginBottom': '3px'}),
-        html.P(f"Unique Preprocessing: {df['preprocessing'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
-        html.P(f"Unique Split Ratios: {df['split'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
-        html.P(f"Unique Age Categories: {df['age_category'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
-        html.P(f"Unique Imbalancing: {df['imbalancing_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
-        html.P(f"Unique Predictors: {df['predictor_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
-        html.P(f"Unique Recidivism: {df['define_recid_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P("Number of choices for each decision", style={'fontSize': '12px', 'color': '#333', 'marginBottom': '8px', 'fontWeight': 'bold', 'textAlign': 'center'}),
+        html.P(f"Total Universes: {total_specs}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Preprocessing: {df['preprocessing'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Split Ratios: {df['split'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Age Categories: {df['age_category'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Imbalancing: {df['imbalancing_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Predictors: {df['predictor_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Recidivism Definitions: {df['define_recid_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
         html.Hr(style={'margin': '8px 0', 'borderColor': '#ddd'}),
         html.P("Note: Both profiles use the same method combinations with different demographic parameters.", 
                style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '5px'})

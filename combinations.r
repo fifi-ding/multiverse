@@ -228,7 +228,7 @@ run_multiverse_analysis <- function(data, preprocessing_methods, split_methods, 
     # Predictor
     if (universe$predictor_method == "full") {
       cox_formula <- Surv(TIME, RECID) ~ TSERVD_100 + AGE_1000 + PRIORS_10 + WHITE + FELON + ALCHY + JUNKY + PROPTY + MALE + RULE_100 + MARRIED + SCHOOL_10 + WORKREL + PERSON + SUPER
-    } else if (universe$predictor_method == "final"){
+    } else if (universe$predictor_method == "schmidtl"){
       cox_formula <- Surv(TIME, RECID) ~ TSERVD_100 + AGE_1000 + PRIORS_10 + WHITE + FELON + ALCHY + JUNKY + PROPTY + MALE
     } else if (universe$predictor_method == "protected") {
       cox_formula <- Surv(TIME, RECID) ~ TSERVD_100 + PRIORS_10 + FELON + ALCHY + JUNKY + PROPTY
@@ -287,7 +287,7 @@ preprocessing_options <- c("Method_A", "Method_B", "Method_C")
 split_options <- c("1:2", "6:4", "7:3", "8:2")
 age_cat_options <- c("raw_age_year","age_cat_compas", "age_cat_nij")
 imbalancing_options <- c("Undersampling", "Oversampling", "Male Only", "Female Only", "Weighting")
-predictor_options <- c("full", "final", "protected")
+predictor_options <- c("full", "schmidt", "protected")
 define_recid_options <- c("1yr", "2yr", "3yr", "4yr", "5yr")
 
 # Function will be called from Python with profile parameters
