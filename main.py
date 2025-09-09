@@ -34,7 +34,20 @@ create_decision_tree <- function(data) {
     # Get variable importance
     var_importance <- tree$variable.importance
     
-    # Get variable importance
+    # Ensure variable importance has proper names
+    if (is.null(names(var_importance)) || length(names(var_importance)) == 0) {
+        # Get variable names from the tree frame
+        tree_frame <- tree$frame
+        var_names <- as.character(tree_frame$var)
+        used_vars <- unique(var_names[var_names != "<leaf>"])
+        
+        # Assign names to variable importance
+        if (length(used_vars) >= length(var_importance)) {
+            names(var_importance) <- used_vars[1:length(var_importance)]
+        } else {
+            names(var_importance) <- paste0("Var_", 1:length(var_importance))
+        }
+    }
     
     # Return both tree and variable importance
     return(list(tree = tree, var_importance = var_importance))
@@ -45,17 +58,16 @@ get_variable_importance <- function(data) {
     result <- create_decision_tree(data)
     var_importance <- result$var_importance
     
-    # Ensure we have the correct variable names in the right order
-    # Based on your RStudio results, the order should be:
-    # predictor_method, imbalancing_method, define_recid_method, split, preprocessing, age_category
-    expected_names <- c("predictor_method", "imbalancing_method", "define_recid_method", 
-                       "split", "preprocessing", "age_category")
-    
-    # Create a named vector with the correct names
-    names(var_importance) <- expected_names
+    # Debug: print what we get from variable.importance
+    cat("Variable importance result:\n")
+    print(var_importance)
+    cat("Names:", names(var_importance), "\n")
     
     # Sort by importance values (descending) to ensure proper ordering
     var_importance_sorted <- sort(var_importance, decreasing = TRUE)
+    
+    cat("Sorted variable importance:\n")
+    print(var_importance_sorted)
     
     # Return sorted result
     return(var_importance_sorted)
@@ -1023,20 +1035,25 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
             focal_regions = [list(range(len(df1_sorted)))]
         
         # Add focal profile data with region tracking
-        for i, (_, row) in enumerate(df1_display.iterrows()):
-            combined_data.append(row)
-            universe_labels.append(f"F{i}")
-            profile_colors.append('#d63384')  # Pink for focal
-            
-            # Determine which region this universe belongs to
-            # Map the display index back to the original sorted index
-            original_index = df1_sorted.index.get_loc(row.name)
-            region_num = 1
-            for j, region in enumerate(focal_regions):
-                if original_index in region:
-                    region_num = j + 1
-                    break
-            region_info.append(f"Focal Region {region_num}")
+        # Collect all selected universes and sort them by recidivism probability to maintain curve ordering
+        all_selected_universes = []
+        for region in focal_regions:
+            all_selected_universes.extend(region)
+        
+        # Sort all selected universes by their recidivism probability to match curve ordering
+        all_selected_universes.sort(key=lambda idx: df1_sorted.iloc[idx]['recidivism_prob'] if idx < len(df1_sorted) else 0)
+        
+        universe_counter = 0
+        for universe_idx in all_selected_universes:
+            if universe_idx < len(df1_sorted):
+                row = df1_sorted.iloc[universe_idx]
+                combined_data.append(row)
+                universe_labels.append(f"F{universe_counter}")
+                profile_colors.append('#d63384')  # Pink for focal
+                # Find which region this universe belongs to
+                region_idx = next((i for i, region in enumerate(focal_regions) if universe_idx in region), 0)
+                region_info.append(f"Focal Region {region_idx + 1}")
+                universe_counter += 1
     
     # Process counterfactual profile data (df2)
     if not df2.empty:
@@ -1059,20 +1076,25 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
             cf_regions = [list(range(len(df2_sorted)))]
         
         # Add counterfactual profile data with region tracking
-        for i, (_, row) in enumerate(df2_display.iterrows()):
-            combined_data.append(row)
-            universe_labels.append(f"CF{i}")
-            profile_colors.append('#0d6efd')  # Blue for counterfactual
-            
-            # Determine which region this universe belongs to
-            # Map the display index back to the original sorted index
-            original_index = df2_sorted.index.get_loc(row.name)
-            region_num = 1
-            for j, region in enumerate(cf_regions):
-                if original_index in region:
-                    region_num = j + 1
-                    break
-            region_info.append(f"CF Region {region_num}")
+        # Collect all selected universes and sort them by recidivism probability to maintain curve ordering
+        all_selected_universes = []
+        for region in cf_regions:
+            all_selected_universes.extend(region)
+        
+        # Sort all selected universes by their recidivism probability to match curve ordering
+        all_selected_universes.sort(key=lambda idx: df2_sorted.iloc[idx]['recidivism_prob'] if idx < len(df2_sorted) else 0)
+        
+        universe_counter = 0
+        for universe_idx in all_selected_universes:
+            if universe_idx < len(df2_sorted):
+                row = df2_sorted.iloc[universe_idx]
+                combined_data.append(row)
+                universe_labels.append(f"CF{universe_counter}")
+                profile_colors.append('#0d6efd')  # Blue for counterfactual
+                # Find which region this universe belongs to
+                region_idx = next((i for i, region in enumerate(cf_regions) if universe_idx in region), 0)
+                region_info.append(f"CF Region {region_idx + 1}")
+                universe_counter += 1
     
     if not combined_data:
         # No data to display
@@ -1193,7 +1215,8 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
             if i == len(region_info) or region_info[i] != current_region:
                 # End of current region, add background
                 if i > region_start:
-                    region_color = 'rgba(220, 53, 69, 0.1)' if 'Focal' in current_region else 'rgba(0, 123, 255, 0.1)'
+                    # Use blue background for CF regions, orange for Focal regions
+                    region_color = 'rgba(0, 123, 255, 0.1)' if 'CF' in current_region else 'rgba(255, 165, 0, 0.1)'
                     fig.add_shape(
                         type="rect",
                         x0=region_start - 0.5, x1=i - 0.5,
@@ -1303,6 +1326,8 @@ def create_specification_grid(df, profile_num, selected_universes=None):
         try:
             selected_universe_ids = [df_sorted.index[i] for i in selected_universes if isinstance(i, int) and i < len(df_sorted)]
             if selected_universe_ids:
+                # Sort selected universe IDs by their recidivism probability to maintain curve ordering
+                selected_universe_ids.sort(key=lambda uid: df_sorted.loc[uid, 'recidivism_prob'])
                 df_display = df_sorted.loc[selected_universe_ids]
                 title_suffix = f" - {len(selected_universe_ids)} Selected Universes"
                 # Identify regions within selections
@@ -1455,7 +1480,8 @@ def create_specification_grid(df, profile_num, selected_universes=None):
             if region_idx != current_region_idx or i == len(df_display) - 1:
                 # End of current region, add background
                 if i > region_start:
-                    region_color = 'rgba(220, 53, 69, 0.1)'
+                    # Use blue background for CF regions (profile_num == 2), orange for Focal regions
+                    region_color = 'rgba(0, 123, 255, 0.1)' if profile_num == 2 else 'rgba(255, 165, 0, 0.1)'
                     fig.add_shape(
                         type="rect",
                         x0=region_start - 0.5, x1=i - 0.5,
@@ -1618,27 +1644,57 @@ def get_variable_importance_r(df):
             # Convert R vector to Python dictionary
             var_importance_dict = {}
             
+            # Debug: print what we get from R
+            print(f"R var_importance type: {type(var_importance)}")
+            print(f"R var_importance length: {len(var_importance)}")
+            print(f"R var_importance names: {var_importance.names if hasattr(var_importance, 'names') else 'No names'}")
+            print(f"R var_importance values: {list(var_importance)}")
+            
+            # Expected variable names in the order they should appear
+            expected_vars = ["predictor_method", "define_recid_method", "imbalancing_method", 
+                           "split", "preprocessing", "age_category"]
+            
             # Use the variable names from the R results (which should now be properly named)
             # The R function now returns named vectors, so we can extract the names
             if hasattr(var_importance, 'names') and var_importance.names is not None:
+                print(f"Processing {len(var_importance.names)} names from R")
                 # Use the names from R
                 for i, name in enumerate(var_importance.names):
-                    var_importance_dict[name] = float(var_importance[i])
-            else:
-                # Fallback to expected names based on your RStudio results
-                expected_names = ["predictor_method", "imbalancing_method", "define_recid_method", 
-                                "split", "preprocessing", "age_category"]
-                for i in range(len(var_importance)):
-                    if i < len(expected_names):
-                        var_importance_dict[expected_names[i]] = float(var_importance[i])
+                    print(f"Processing name {i}: '{name}' (type: {type(name)})")
+                    # Convert R string to Python string and clean it
+                    if isinstance(name, str):
+                        clean_name = name.strip()
                     else:
-                        var_importance_dict[f"Var_{i+1}"] = float(var_importance[i])
+                        clean_name = str(name).strip() if name is not None else ""
+                    
+                    if clean_name and clean_name != "NA" and clean_name != "" and clean_name != "None":  # Skip null, NA, or empty names
+                        var_importance_dict[clean_name] = float(var_importance[i])
+                        print(f"Added {clean_name}: {float(var_importance[i])}")
+                    else:
+                        # If name is invalid, use expected variable name as fallback
+                        if i < len(expected_vars):
+                            fallback_name = expected_vars[i]
+                        else:
+                            fallback_name = f"Variable_{i+1}"
+                        var_importance_dict[fallback_name] = float(var_importance[i])
+                        print(f"Using fallback name {fallback_name}: {float(var_importance[i])}")
+            else:
+                print("No names from R, using expected variable names")
+                # Fallback: use expected variable names
+                for i in range(len(var_importance)):
+                    if i < len(expected_vars):
+                        var_importance_dict[expected_vars[i]] = float(var_importance[i])
+                    else:
+                        var_importance_dict[f"Variable_{i+1}"] = float(var_importance[i])
             
             # Sort by importance (descending) - ensure proper ordering
             sorted_importance = sorted(var_importance_dict.items(), key=lambda x: x[1], reverse=True)
             
             # Debug: print the sorted importance for verification
-            print(f"Sorted variable importance: {sorted_importance}")
+            print(f"Variable importance analysis completed:")
+            print(f"  - Number of variables analyzed: {len(var_importance_dict)}")
+            print(f"  - Variable names: {list(var_importance_dict.keys())}")
+            print(f"  - Sorted importance: {sorted_importance}")
             
             return sorted_importance
     except Exception as e:
@@ -1680,23 +1736,23 @@ def get_tree_nodes_r(df):
         return []
 
 def identify_regions(selected_indices, df_sorted):
-    """Identify separate regions within selected indices"""
+    """Identify separate regions within selected indices, preserving selection order"""
     if not selected_indices:
         return []
     
-    # Sort the indices to identify contiguous regions
-    sorted_indices = sorted(selected_indices)
+    # Don't sort the indices - preserve the original selection order
+    # This ensures regions appear in the same order as selected in the curves
     regions = []
-    current_region = [sorted_indices[0]]
+    current_region = [selected_indices[0]]
     
-    for i in range(1, len(sorted_indices)):
+    for i in range(1, len(selected_indices)):
         # If the next index is adjacent to the current region, extend it
-        if sorted_indices[i] == sorted_indices[i-1] + 1:
-            current_region.append(sorted_indices[i])
+        if selected_indices[i] == selected_indices[i-1] + 1:
+            current_region.append(selected_indices[i])
         else:
             # Gap found, start a new region
             regions.append(current_region)
-            current_region = [sorted_indices[i]]
+            current_region = [selected_indices[i]]
     
     # Add the last region
     regions.append(current_region)
@@ -1810,11 +1866,21 @@ def get_regional_variable_importance_display(df, profile, profile_num, selected_
                     paper_bgcolor='rgba(0,0,0,0)'
                 )
                 
-                var_importance_html.append(dcc.Graph(
-                    figure=bar_fig,
-                    config={'displayModeBar': False},
-                    style={'height': '80px', 'marginBottom': '10px'}
-                ))
+                # Wrap the chart in a horizontally scrollable container
+                var_importance_html.append(html.Div([
+                    dcc.Graph(
+                        figure=bar_fig,
+                        config={'displayModeBar': False},
+                        style={'height': '80px', 'marginBottom': '10px', 'minWidth': '300px'}
+                    )
+                ], style={
+                    'overflowX': 'auto',
+                    'overflowY': 'hidden',
+                    'marginBottom': '10px',
+                    'border': '1px solid #e9ecef',
+                    'borderRadius': '4px',
+                    'padding': '2px'
+                }))
             
             # Add tree nodes for this region
             if tree_nodes:
@@ -1982,11 +2048,21 @@ def get_combined_variable_importance_display(df1, df2, profile1, profile2, selec
                     paper_bgcolor='rgba(0,0,0,0)'
                 )
                 
-                var_importance_html.append(dcc.Graph(
-                    figure=bar_fig,
-                    config={'displayModeBar': False},
-                    style={'height': '100px'}
-                ))
+                # Wrap the chart in a horizontally scrollable container
+                var_importance_html.append(html.Div([
+                    dcc.Graph(
+                        figure=bar_fig,
+                        config={'displayModeBar': False},
+                        style={'height': '100px', 'minWidth': '300px'}
+                    )
+                ], style={
+                    'overflowX': 'auto',
+                    'overflowY': 'hidden',
+                    'marginBottom': '10px',
+                    'border': '1px solid #e9ecef',
+                    'borderRadius': '4px',
+                    'padding': '2px'
+                }))
         
         # Add tree nodes section
         if tree_nodes:
@@ -2144,12 +2220,21 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
                     paper_bgcolor='rgba(0,0,0,0)'
                 )
                 
-                # Add the bar plot
-                var_importance_html.append(dcc.Graph(
-                    figure=bar_fig,
-                    config={'displayModeBar': False},
-                    style={'height': '100px'}
-                ))
+                # Add the bar plot in a horizontally scrollable container
+                var_importance_html.append(html.Div([
+                    dcc.Graph(
+                        figure=bar_fig,
+                        config={'displayModeBar': False},
+                        style={'height': '100px', 'minWidth': '300px'}
+                    )
+                ], style={
+                    'overflowX': 'auto',
+                    'overflowY': 'hidden',
+                    'marginBottom': '10px',
+                    'border': '1px solid #e9ecef',
+                    'borderRadius': '4px',
+                    'padding': '2px'
+                }))
         
         # Add tree nodes section
         if tree_nodes:
