@@ -73,59 +73,76 @@ get_variable_importance <- function(data) {
     return(var_importance_sorted)
 }
 
+#' Get and rank the split rules from an rpart tree by their position in the tree.
+#'
+#' @param tree An rpart object.
+#' @return A data.frame with details for each split, ranked by top-down position.
+get_split_rules_by_position <- function(tree) {
+  # Check if the input is an rpart object
+  if (!inherits(tree, "rpart")) {
+    stop("The provided object is not an rpart tree.")
+  }
+
+  # The frame and splits contain all the necessary info
+  frame <- tree$frame
+  splits <- tree$splits
+
+  # 1. Filter for internal nodes only (where splits occur)
+  internal_nodes_frame <- frame[frame$var != "<leaf>", ]
+  if (nrow(internal_nodes_frame) == 0) {
+    return(data.frame()) # Return empty frame if no splits
+  }
+  
+  node_ids <- as.numeric(rownames(internal_nodes_frame))
+
+  # 2. Get the paths to the direct children of these nodes
+  left_children <- node_ids * 2
+  right_children <- node_ids * 2 + 1
+  child_paths <- path.rpart(tree, nodes = c(left_children, right_children), print.it = FALSE)
+  
+  left_rules <- sapply(child_paths[1:length(node_ids)], tail, 1)
+  right_rules <- sapply(child_paths[(length(node_ids) + 1):length(child_paths)], tail, 1)
+
+  # 3. Combine everything into a data frame
+  split_rules_df <- data.frame(
+    node = node_ids,
+    variable = internal_nodes_frame$var,
+    n_obs_split = internal_nodes_frame$n,
+    improvement = splits[1:nrow(internal_nodes_frame), "improve"],
+    left_rule = left_rules,
+    right_rule = right_rules
+  )
+  
+  # --- THIS IS THE CORRECTED LINE ---
+  # We now order by the node number to match the tree's visual structure.
+  split_rules_df <- split_rules_df[order(split_rules_df$node), ]
+  split_rules_df$rank <- 1:nrow(split_rules_df)
+  
+  # Reorder columns for clarity
+  split_rules_df <- split_rules_df[, c("rank", "node", "variable", "improvement", "n_obs_split", "left_rule", "right_rule")]
+
+  return(split_rules_df)
+}
+
 # Function to get regression tree nodes and split rules
 get_tree_nodes <- function(data) {
     result <- create_decision_tree(data)
     tree <- result$tree
     
-    # 1. Get the tree frame and calculate the depth of each node
-    tree_frame <- tree$frame
-    node_depths <- floor(log2(as.numeric(row.names(tree_frame)))) + 1
-    tree_frame$depth <- node_depths
+    # Use the new function to get split rules by position
+    ranked_splits_by_position <- get_split_rules_by_position(tree)
     
-    # 2. Filter for the top layers (e.g., top 5 layers)
-    top_layers <- tree_frame[tree_frame$depth <= 5 & tree_frame$var != "<leaf>", ]
-    
-    # 3. Order the filtered nodes by depth
-    ranked_nodes <- top_layers[order(top_layers$depth), ]
-    
-    # 4. Define the function to get the readable split rule
-    get_node_rule <- function(tree, node_num) {
-        tree_frame <- tree$frame
-        splits_info <- tree$splits
-        node_row <- which(rownames(tree_frame) == node_num)
-        
-        internal_nodes <- tree_frame[tree_frame$var != "<leaf>", ]
-        split_index <- which(rownames(internal_nodes) == node_num)
-        
-        if (length(split_index) == 0) return("No split rule found.")
-        
-        split_var <- tree_frame$var[node_row]
-        split_cutpoint <- splits_info[split_index, "index"]
-        split_direction <- splits_info[split_index, "ncat"]
-        
-        if (split_direction > 1) {
-            levels_all <- levels(data[[split_var]])
-            left_levels <- levels_all[which(bitwAnd(2^(0:(length(levels_all) - 1)), split_cutpoint) != 0)]
-            return(paste0(split_var, " is one of {", paste(left_levels, collapse = ", "), "}"))
-        } else {
-            return(paste0(split_var, " < ", split_cutpoint))
-        }
-    }
-    
-    # 5. Loop through the ranked nodes and collect the rules
+    # Convert to the expected format for backward compatibility
     node_rules <- list()
-    for (node_num in as.numeric(rownames(ranked_nodes))) {
-        rule <- get_node_rule(tree, node_num)
-        node_var <- tree_frame[rownames(tree_frame) == node_num, "var"]
-        node_depth <- tree_frame[rownames(tree_frame) == node_num, "depth"]
-        
-        node_rules[[length(node_rules) + 1]] <- list(
-            rank = node_depth,
-            node = node_num,
-            variable = node_var,
-            rule = rule
-        )
+    if (nrow(ranked_splits_by_position) > 0) {
+        for (i in 1:nrow(ranked_splits_by_position)) {
+            node_rules[[length(node_rules) + 1]] <- list(
+                rank = ranked_splits_by_position$rank[i],
+                node = ranked_splits_by_position$node[i],
+                variable = as.character(ranked_splits_by_position$variable[i]),
+                rule = as.character(ranked_splits_by_position$left_rule[i])
+            )
+        }
     }
     
     return(node_rules)
@@ -357,9 +374,20 @@ def create_layout():
         html.Div([
             # Left Sidebar - Counterfactual Profiles
             html.Div([
-                html.H3("Profiles", style={'textAlign': 'center', 'marginBottom': '12px', 'fontSize': '18px'}),
-                html.P("Focal vs Counterfactual Demographic Profiles", style={'textAlign': 'center', 'marginBottom': '10px', 'fontSize': '12px', 'color': '#666'}),
-                #html.P("(Read-only profiles - dropdowns disabled)", style={'textAlign': 'center', 'marginBottom': '15px', 'fontSize': '11px', 'color': '#999', 'fontStyle': 'italic'}),
+                # Step 1 Instruction Block (includes Profiles title and profile cards)
+                html.Div([
+                    html.Div("STEP 1", style={
+                        'fontSize': '12px', 
+                        'fontWeight': 'bold', 
+                        'color': 'white', 
+                        'backgroundColor': '#6c757d', 
+                        'padding': '4px 8px', 
+                        'borderRadius': '4px',
+                        'textAlign': 'center',
+                        'marginBottom': '12px'
+                    }),
+                    html.P("Customize your counterfactual profile by adjusting characteristics.", 
+                           style={'fontSize': '11px', 'color': '#333', 'margin': '0 0 15px 0', 'lineHeight': '1.4', 'fontStyle': 'italic'}),
                 
                 # Profile containers side by side
                 html.Div([
@@ -475,8 +503,7 @@ def create_layout():
                     'marginBottom': '15px'
                 }),
                 
-                # Submit Button for Profile Analysis
-                html.Div([
+                    # Run Multiverse Analysis Button
                     html.Button(
                         "Run Multiverse Analysis",
                         id='submit-profiles-button',
@@ -490,15 +517,36 @@ def create_layout():
                             'cursor': 'pointer',
                             'fontWeight': 'bold',
                             'width': '100%',
-                            'marginTop': '10px'
+                            'marginBottom': '10px'
                         }
                     ),
                     html.P("Click to analyze the selected profiles and generate multiverse results", 
-                           style={'fontSize': '11px', 'color': '#666', 'textAlign': 'center', 'marginTop': '5px', 'fontStyle': 'italic'})
-                ], style={'marginBottom': '15px'}),
+                           style={'fontSize': '11px', 'color': '#666', 'textAlign': 'center', 'marginBottom': '0px', 'fontStyle': 'italic'})
                 
-                # Progress Indicator
+                ], style={
+                    'backgroundColor': '#f8f9fa', 
+                    'border': '2px solid #6c757d', 
+                    'borderRadius': '8px', 
+                    'padding': '15px', 
+                    'marginBottom': '15px'
+                }),
+                
+                # Step 2 Instruction Block (includes progress and overview)
                 html.Div([
+                    html.Div("STEP 2", style={
+                        'fontSize': '12px', 
+                        'fontWeight': 'bold', 
+                        'color': 'white', 
+                        'backgroundColor': '#6c757d', 
+                        'padding': '4px 8px', 
+                        'borderRadius': '4px',
+                        'textAlign': 'center',
+                        'marginBottom': '12px'
+                    }),
+                    html.P("Monitor the analysis progress and view method combinations overview. The analysis will generate all possible universe combinations for both profiles.", 
+                           style={'fontSize': '11px', 'color': '#333', 'margin': '0 0 15px 0', 'lineHeight': '1.4', 'fontStyle': 'italic'}),
+                    
+                    # Analysis Progress Section
                     html.H5("Analysis Progress", style={'textAlign': 'center', 'marginBottom': '10px', 'fontSize': '14px', 'color': '#333'}),
                     
                     # Progress bars for each profile
@@ -545,11 +593,9 @@ def create_layout():
                             html.P("Note: Identical profiles run once together. Focal profile results are reused when possible.", 
                                    style={'fontSize': '9px', 'color': '#888', 'textAlign': 'center', 'fontStyle': 'italic', 'marginTop': '5px'})
                         ], style={'marginBottom': '10px'})
-                    ], style={'marginBottom': '10px'})
-                ], style={'marginBottom': '15px'}),
-                
-                # Dataset Overview Section
-                html.Div([
+                    ], style={'marginBottom': '15px'}),
+                    
+                    # Method Combinations Overview Section
                     html.H5("Method Combinations Overview", style={'textAlign': 'center', 'marginBottom': '10px', 'fontSize': '14px', 'color': '#333'}),
                     html.Div(
                         id='dataset-overview-content',
@@ -562,7 +608,14 @@ def create_layout():
                             'color': '#666'
                         }
                     )
-                ], style={'marginBottom': '15px'}),
+                    
+                ], style={
+                    'backgroundColor': '#f8f9fa', 
+                    'border': '2px solid #6c757d', 
+                    'borderRadius': '8px', 
+                    'padding': '15px', 
+                    'marginBottom': '15px'
+                }),
                 
             ], style={
                 'flex': '0 0 400px',
@@ -574,39 +627,28 @@ def create_layout():
             
             # Central Charts & Right Cards Container
             html.Div([
-                # Row 1: Combined Specification Grid
+                # Step 3 Instruction Block with Clear All button as tab
                 html.Div([
+                    # Header row with STEP 3 box
+                    html.Div([
+                        html.Div([
+                            html.Div("STEP 3", style={
+                                'fontSize': '12px', 
+                                'fontWeight': 'bold', 
+                                'color': 'white', 
+                                'backgroundColor': '#6c757d', 
+                                'padding': '4px 8px', 
+                                'borderRadius': '4px',
+                                'textAlign': 'center',
+                                'marginBottom': '4px'
+                            }),
+                            html.P("Click/drag to select regions • Multiple selections accumulate • Grid shows method combinations", 
+                                   style={'fontSize': '10px', 'color': '#666', 'textAlign': 'center', 'margin': '0 0 8px 0', 'fontStyle': 'italic'})
+                        ])
+                    ], style={'marginBottom': '10px'}),
+                    
                     # Combined Specification Grid
                     html.Div([
-                        
-                        # Instructions
-                        html.P(
-                            "The specification grid shows the procedural choices for all universes. Drag to select multiple regions in either or both specification curves below to filter the grid view. Multiple selections are accumulated - each new selection adds to previous ones. Multiple regions from the same profile are combined into a single batch for variable importance analysis.",
-                            style={
-                                'fontSize': '12px',
-                                'color': '#666',
-                                'textAlign': 'center',
-                                'marginBottom': '10px',
-                                'fontStyle': 'italic'
-                            }
-                        ),
-                        
-                        # Clear All Selections button (moved above grid)
-                        html.Div([
-                            html.Button(
-                                "Clear All Selections",
-                                id='clear-selections-button',
-                                style={
-                                    'fontSize': '10px',
-                                    'padding': '4px 8px',
-                                    'backgroundColor': '#dc3545',
-                                    'color': 'white',
-                                    'border': 'none',
-                                    'borderRadius': '4px',
-                                    'cursor': 'pointer'
-                                }
-                            )
-                        ], style={'textAlign': 'center', 'marginBottom': '10px'}),
                         
                         # Selection status indicator (moved above grid)
                         html.Div([
@@ -620,127 +662,158 @@ def create_layout():
                             )
                         ]),
                         
-                        # Combined specification grid
-                        html.Div([
-                            dcc.Graph(
-                                id='combined-spec-grid',
-                                config={
-                                    'displayModeBar': True,
-                                    'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d'],
-                                    'displaylogo': False
-                                }
-                            )
-                        ]),
-                        
-                    ], style={'flex': '1', 'minWidth': '0'}),
-                    
-                ], style={'display': 'flex', 'flexDirection': 'row', 'alignItems': 'flex-start', 'gap': '20px'}),
-                
-                # Row 2: All Four Components in Horizontal Layout
-                html.Div([
-                    # 1. Focal Specification Curve
-                    html.Div([
                         dcc.Graph(
-                            id='spec-curve-1',
+                            id='combined-spec-grid',
                             config={
                                 'displayModeBar': True,
                                 'modeBarButtonsToRemove': ['pan2d'],
                                 'displaylogo': False
                             }
                         )
-                    ], style={'flex': '1.2', 'minWidth': '0'}),
+                        
+                    ], style={'flex': '1', 'minWidth': '0', 'marginBottom': '20px'}),
                     
-                    # 2. Focal Decision Importance Card
+                    
+                    # Clear buttons above curves panel - full width
                     html.Div([
-                        html.H4(
-                            id='variable-importance-title-1',
-                            style={'textAlign': 'center', 'marginBottom': '0px', 'color': '#d63384', 'fontSize': '14px', 'marginTop': '60px'}
-                        ),
-                        html.Div(
-                            id='variable-importance-content-1',
-                            style={
-                                'padding': '6px',
-                                'border': '1px solid #ddd',
-                                'borderRadius': '5px',
-                                'minHeight': '0px',
-                                'maxHeight': '300px',
-                                'backgroundColor': '#f9f9f9',
-                                'overflowY': 'auto'
-                            }
-                        ),
-                        # Clear Focal Selections button (moved under variable importance card)
                         html.Div([
                             html.Button(
-                                'Clear Focal Selections',
+                                "Clear Focal Selections",
                                 id='clear-focal-btn',
                                 n_clicks=0,
                                 style={
+                                    'fontSize': '11px',
+                                    'padding': '8px 0px',
                                     'backgroundColor': '#d63384',
                                     'color': 'white',
                                     'border': 'none',
-                                    'padding': '6px 12px',
-                                    'borderRadius': '4px',
+                                    'borderRadius': '4px 0px 0px 4px',
                                     'cursor': 'pointer',
-                                    'fontSize': '11px',
-                                    'marginTop': '8px',
-                                    'width': '100%'
+                                    'width': '100%',
+                                    'height': '100%'
                                 }
                             )
-                        ], style={'textAlign': 'center', 'marginTop': '8px'})
-                    ], style={'flex': '0.6', 'minWidth': '0', 'alignSelf': 'flex-start'}),
-                    
-                    # 3. Counterfactual Specification Curve
-                    html.Div([
-                        dcc.Graph(
-                            id='spec-curve-2',
-                            config={
-                                'displayModeBar': True,
-                                'modeBarButtonsToRemove': ['pan2d'],
-                                'displaylogo': False
-                            }
-                        )
-                    ], style={'flex': '1.2', 'minWidth': '0'}),
-                    
-                    # 4. Counterfactual Decision Importance Card
-                    html.Div([
-                        html.H4(
-                            id='variable-importance-title-2',
-                            style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px', 'marginTop': '60px'}
-                        ),
-                        html.Div(
-                            id='variable-importance-content-2',
-                            style={
-                                'padding': '6px',
-                                'border': '1px solid #ddd',
-                                'borderRadius': '5px',
-                                'minHeight': '0px',
-                                'maxHeight': '300px',
-                                'backgroundColor': '#f9f9f9',
-                                'overflowY': 'auto'
-                            }
-                        ),
-                        # Clear Counterfactual Selections button (moved under variable importance card)
+                        ], style={'flex': '1', 'marginRight': '2px'}),
                         html.Div([
                             html.Button(
-                                'Clear CF Selections',
+                                "Clear All Selections",
+                                id='clear-selections-button',
+                                style={
+                                    'fontSize': '11px',
+                                    'padding': '8px 0px',
+                                    'backgroundColor': '#dc3545',
+                                    'color': 'white',
+                                    'border': 'none',
+                                    'borderRadius': '0px',
+                                    'cursor': 'pointer',
+                                    'width': '100%',
+                                    'height': '100%'
+                                }
+                            )
+                        ], style={'flex': '0.5', 'marginRight': '2px'}),
+                        html.Div([
+                            html.Button(
+                                "Clear CF Selections",
                                 id='clear-cf-btn',
                                 n_clicks=0,
                                 style={
+                                    'fontSize': '11px',
+                                    'padding': '8px 0px',
                                     'backgroundColor': '#0d6efd',
                                     'color': 'white',
                                     'border': 'none',
-                                    'padding': '6px 12px',
-                                    'borderRadius': '4px',
+                                    'borderRadius': '0px 4px 4px 0px',
                                     'cursor': 'pointer',
-                                    'fontSize': '11px',
-                                    'marginTop': '8px',
-                                    'width': '100%'
+                                    'width': '100%',
+                                    'height': '100%'
                                 }
                             )
-                        ], style={'textAlign': 'center', 'marginTop': '8px'})
-                    ], style={'flex': '0.6', 'minWidth': '0', 'alignSelf': 'flex-start'}),
+                        ], style={'flex': '1'})
+                    ], style={'display': 'flex', 'marginBottom': '15px', 'height': '40px'}),
                     
-                ], style={'display': 'flex', 'flexDirection': 'row', 'alignItems': 'flex-start', 'gap': '15px', 'marginBottom': '20px'}),
+                    # Two Column Layout with Stacked Components
+                    html.Div([
+                        # Left Column: Focal Profile
+                        html.Div([
+                            # Focal Specification Curve
+                            dcc.Graph(
+                                id='spec-curve-1',
+                                config={
+                                    'displayModeBar': True,
+                                    'modeBarButtonsToRemove': ['pan2d'],
+                                    'displaylogo': False
+                                }
+                            ),
+                            
+                            # Focal Decision Importance Card (Step 4 Box)
+                            html.Div([
+                                html.Div(
+                                    id='variable-importance-content-1',
+                                    style={
+                                        'padding': '15px',
+                                        'border': '1px solid #ddd',
+                                        'borderRadius': '5px',
+                                        'minHeight': '0px',
+                                        'maxHeight': '200px',
+                                        'backgroundColor': '#f9f9f9',
+                                        'overflowY': 'auto',
+                                        'marginBottom': '15px'
+                                    }
+                                ),
+                            ], style={
+                                'backgroundColor': '#f8f9fa', 
+                                'border': '2px solid #6c757d', 
+                                'borderRadius': '8px', 
+                                'padding': '0px', 
+                                'marginBottom': '0px'
+                            })
+                        ], style={'flex': '1', 'minWidth': '0', 'marginRight': '15px'}),
+                        
+                        # Right Column: Counterfactual Profile
+                        html.Div([
+                            # Counterfactual Specification Curve
+                            dcc.Graph(
+                                id='spec-curve-2',
+                                config={
+                                    'displayModeBar': True,
+                                    'modeBarButtonsToRemove': ['pan2d'],
+                                    'displaylogo': False
+                                }
+                            ),
+                            
+                            # Counterfactual Decision Importance Card (Step 4 Box)
+                            html.Div([
+                                html.Div(
+                                    id='variable-importance-content-2',
+                                    style={
+                                        'padding': '15px',
+                                        'border': '1px solid #ddd',
+                                        'borderRadius': '5px',
+                                        'minHeight': '0px',
+                                        'maxHeight': '200px',
+                                        'backgroundColor': '#f9f9f9',
+                                        'overflowY': 'auto',
+                                        'marginBottom': '15px'
+                                    }
+                                ),
+                            ], style={
+                                'backgroundColor': '#f8f9fa', 
+                                'border': '2px solid #6c757d', 
+                                'borderRadius': '8px', 
+                                'padding': '0px', 
+                                'marginBottom': '0px'
+                            })
+                        ], style={'flex': '1', 'minWidth': '0'})
+                        
+                    ], style={'display': 'flex', 'flexDirection': 'row', 'alignItems': 'flex-start', 'gap': '15px', 'marginBottom': '20px'}),
+                    
+                ], style={
+                    'backgroundColor': '#f8f9fa', 
+                    'border': '2px solid #6c757d', 
+                    'borderRadius': '8px', 
+                    'padding': '15px', 
+                    'marginBottom': '20px'
+                }),
                 
             ], style={'flexGrow': 1, 'display': 'flex', 'flexDirection': 'column', 'gap': '20px', 'maxWidth': '1400px', 'minWidth': '0'}),
             
@@ -762,7 +835,7 @@ def create_specification_curve(df, profile, profile_num, previously_selected=Non
         )
         fig.update_layout(
             title=f'{"Focal Profile" if profile_num == 1 else "Counterfactual Profile"}',
-            xaxis_title='Universe Index',
+            xaxis_title='Analysis Pipeline Index',
             yaxis_title='Predicted Risk Probability',
             height=400,
             showlegend=False,
@@ -916,7 +989,7 @@ def create_specification_curve(df, profile, profile_num, previously_selected=Non
     
     fig.update_layout(
         title=f'{profile_name}',
-        xaxis_title='Universe Index',
+        xaxis_title='Analysis Pipeline Index',
         yaxis_title='Predicted Risk Probability',
         height=400,
         showlegend=False,
@@ -936,7 +1009,7 @@ def create_specification_curve(df, profile, profile_num, previously_selected=Non
         fig.update_xaxes(
             tickmode='array',
             tickvals=x_positions,
-            ticktext=[f"U{df_plot.index[i]}" for i in x_positions]
+            ticktext=[f"{df_plot.index[i]}" for i in x_positions]
         )
     else:  # Show every nth position for readability
         step = max(1, len(x_positions) // 10)
@@ -944,7 +1017,7 @@ def create_specification_curve(df, profile, profile_num, previously_selected=Non
         fig.update_xaxes(
             tickmode='array',
             tickvals=selected_positions,
-            ticktext=[f"U{df_plot.index[i]}" for i in selected_positions]
+            ticktext=[f"{df_plot.index[i]}" for i in selected_positions]
         )
     
 
@@ -965,7 +1038,7 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
         )
         fig.update_layout(
             title='Combined Specification Grid',
-            xaxis_title='Universe Index',
+            xaxis_title='Analysis Pipeline Index',
             yaxis_title='Pipeline Choices',
             height=500,
             showlegend=False
@@ -1071,7 +1144,7 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
         )
         fig.update_layout(
             title='Combined Specification Grid',
-            xaxis_title='Universe Index',
+            xaxis_title='Analysis Pipeline Index',
             yaxis_title='Pipeline Choices',
             height=500,
             showlegend=False
@@ -1215,8 +1288,8 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
             if i == len(region_info) or region_info[i] != current_region:
                 # End of current region, add background
                 if i > region_start:
-                    # Use blue background for CF regions, orange for Focal regions
-                    region_color = 'rgba(0, 123, 255, 0.1)' if 'CF' in current_region else 'rgba(255, 165, 0, 0.1)'
+                    # Use blue background for CF regions, magenta for Focal regions
+                    region_color = 'rgba(0, 123, 255, 0.1)' if 'CF' in current_region else 'rgba(255, 0, 255, 0.1)'
                     fig.add_shape(
                         type="rect",
                         x0=region_start - 0.5, x1=i - 0.5,
@@ -1266,7 +1339,7 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
     # Customize the layout
     fig.update_layout(
         title='Combined Specification Grid',
-        xaxis_title='Universe Index',
+        xaxis_title='Analysis Pipeline Index',
         yaxis_title='Pipeline Choices',
         height=500,
         showlegend=False,
@@ -1310,7 +1383,7 @@ def create_specification_grid(df, profile_num, selected_universes=None, highligh
         )
         fig.update_layout(
             title=f'{"Focal Profile" if profile_num == 1 else "Counterfactual Profile"} Specification Grid',
-            xaxis_title='Universe Index',
+            xaxis_title='Analysis Pipeline Index',
             yaxis_title='Pipeline Choices',
             height=500,
             showlegend=False
@@ -1508,8 +1581,8 @@ def create_specification_grid(df, profile_num, selected_universes=None, highligh
             if region_idx != current_region_idx or i == len(df_display) - 1:
                 # End of current region, add background
                 if i > region_start:
-                    # Use blue background for CF regions (profile_num == 2), orange for Focal regions
-                    region_color = 'rgba(0, 123, 255, 0.1)' if profile_num == 2 else 'rgba(255, 165, 0, 0.1)'
+                    # Use blue background for CF regions (profile_num == 2), magenta for Focal regions
+                    region_color = 'rgba(0, 123, 255, 0.1)' if profile_num == 2 else 'rgba(255, 0, 255, 0.1)'
                     fig.add_shape(
                         type="rect",
                         x0=region_start - 0.5, x1=i - 0.5,
@@ -1565,7 +1638,7 @@ def create_specification_grid(df, profile_num, selected_universes=None, highligh
     # Customize the layout
     fig.update_layout(
         title=f'{"Focal Profile" if profile_num == 1 else "Counterfactual Profile"} Specification Grid{title_suffix}',
-        xaxis_title=f'Universe Index',
+        xaxis_title=f'Analysis Pipeline Index',
         yaxis_title='Pipeline Choices',
         height=500,
         showlegend=False,
@@ -1582,7 +1655,7 @@ def create_specification_grid(df, profile_num, selected_universes=None, highligh
         fig.update_xaxes(
             tickmode='array', 
             tickvals=list(range(len(df_display))), 
-            ticktext=[f"U{df_display.index[i]}" for i in range(len(df_display))]
+            ticktext=[f"{df_display.index[i]}" for i in range(len(df_display))]
         )
     else:  # Show every nth label for readability
         step = max(1, len(df_display.index) // 10)
@@ -1590,7 +1663,7 @@ def create_specification_grid(df, profile_num, selected_universes=None, highligh
         fig.update_xaxes(
             tickmode='array', 
             tickvals=selected_positions, 
-            ticktext=[f"U{df_display.index[i]}" for i in selected_positions]
+            ticktext=[f"{df_display.index[i]}" for i in selected_positions]
         )
     
     return fig
@@ -1792,8 +1865,6 @@ def get_combined_regional_variable_importance_display(df, profile, profile_num, 
     # Check if dataframe is empty
     if df.empty:
         return html.Div([
-            html.P("This card shows the variable importance analysis", 
-                   style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
             html.P("No analysis data available. Click 'Run Multiverse Analysis' to generate results.", 
                    style={'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '50px'}),
             html.Hr(style={'margin': '15px 0'}),
@@ -1831,13 +1902,13 @@ def get_combined_regional_variable_importance_display(df, profile, profile_num, 
     if region_count > 1:
         status_indicator = html.Div([
             html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
-            html.Span(f"Analyzing {region_count} regions as one combined batch", 
+            html.Span(f"Analyzing {region_count} regions from {'focal' if profile_num == 1 else 'counterfactual'} profile", 
                      style={'fontSize': '11px', 'color': '#28a745', 'fontWeight': 'bold'})
         ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
         var_importance_html.append(status_indicator)
     
-    var_importance_html.append(html.H5(f"Combined Decision Analysis ({region_title})", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
-    var_importance_html.append(html.P("Most impactful methods on recidivism probability for the combined selection:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
+    var_importance_html.append(html.H5(f"Decision Analysis ({region_title})", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
+    var_importance_html.append(html.P("Most impactful methods on recidivism probability for the selected regions:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
     
     # Get variable importance for the combined dataset
     var_importance = get_variable_importance_r(analysis_df)
@@ -1892,8 +1963,6 @@ def get_combined_regional_variable_importance_display(df, profile, profile_num, 
                     style={'height': '100px', 'marginBottom': '10px', 'minWidth': '300px'}
                 )
             ], style={
-                'overflowX': 'auto',
-                'overflowY': 'hidden',
                 'marginBottom': '10px',
                 'border': '1px solid #e9ecef',
                 'borderRadius': '4px',
@@ -1929,17 +1998,11 @@ def get_combined_regional_variable_importance_display(df, profile, profile_num, 
         ], style={'marginBottom': '8px', 'padding': '3px 6px', 'backgroundColor': '#f8d7da', 'borderRadius': '3px', 'border': '1px solid #f5c6cb'}))
     
     return html.Div([
-        # Brief instruction
-        html.P("This card shows a single decision tree analysis for all selected regions combined", 
-               style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
-        
         # Decision Importance section
         *var_importance_html,
         
         # Additional info
-        html.Hr(style={'margin': '8px 0'}),
-        html.P(f"Total Universes: {len(analysis_df)}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic'}),
-        html.P(f"Regions Combined: {region_count}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic'})
+        html.Hr(style={'margin': '8px 0'})
     ])
 
 def get_regional_variable_importance_display(df, profile, profile_num, selected_universes=None):
@@ -1947,8 +2010,6 @@ def get_regional_variable_importance_display(df, profile, profile_num, selected_
     # Check if dataframe is empty
     if df.empty:
         return html.Div([
-            html.P("This card shows the variable importance analysis", 
-                   style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
             html.P("No analysis data available. Click 'Run Multiverse Analysis' to generate results.", 
                    style={'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '50px'}),
             html.Hr(style={'margin': '15px 0'}),
@@ -2057,8 +2118,6 @@ def get_regional_variable_importance_display(df, profile, profile_num, selected_
                         style={'height': '80px', 'marginBottom': '10px', 'minWidth': '300px'}
                     )
                 ], style={
-                    'overflowX': 'auto',
-                    'overflowY': 'hidden',
                     'marginBottom': '10px',
                     'border': '1px solid #e9ecef',
                     'borderRadius': '4px',
@@ -2111,23 +2170,21 @@ def get_regional_variable_importance_display(df, profile, profile_num, selected_
     ])
 
 def get_combined_variable_importance_display(df1, df2, profile1, profile2, selected_universes_1=None, selected_universes_2=None):
-    """Generate variable importance display for combined universe selections from both profiles"""
-    # Check if both dataframes are empty
-    if df1.empty and df2.empty:
+    """Generate variable importance display for combined universe selections from focal profile only"""
+    # Check if focal dataframe is empty
+    if df1.empty:
         return html.Div([
-            html.P("This card shows the variable importance analysis", 
-                   style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
             html.P("No analysis data available. Click 'Run Multiverse Analysis' to generate results.", 
                    style={'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '50px'}),
             html.Hr(style={'margin': '15px 0'}),
-            html.P("Profile: Combined Analysis", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'}),
+            html.P("Profile: Combined Analysis (Focal Only)", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'}),
             html.P("Dataset Size: No data available", style={'fontSize': '11px', 'color': '#666', 'fontStyle': 'italic'})
         ])
     
-    # Combine data from both profiles
+    # Only use focal profile data (df1) - exclude counterfactual profile data
     combined_data = []
     
-    # Process focal profile data (df1)
+    # Process focal profile data (df1) only
     if not df1.empty:
         df1_sorted = df1.sort_values('recidivism_prob')
         if selected_universes_1 is not None and len(selected_universes_1) > 0:
@@ -2139,24 +2196,10 @@ def get_combined_variable_importance_display(df1, df2, profile1, profile2, selec
             except (IndexError, KeyError, TypeError):
                 pass
     
-    # Process counterfactual profile data (df2)
-    if not df2.empty:
-        df2_sorted = df2.sort_values('recidivism_prob')
-        if selected_universes_2 is not None and len(selected_universes_2) > 0:
-            try:
-                selected_universe_ids_2 = [df2_sorted.index[i] for i in selected_universes_2 if isinstance(i, int) and i < len(df2_sorted)]
-                if selected_universe_ids_2:
-                    df2_display = df2_sorted.loc[selected_universe_ids_2]
-                    combined_data.extend(df2_display.to_dict('records'))
-            except (IndexError, KeyError, TypeError):
-                pass
-    
     if not combined_data:
-        # No selected universes, use all data
+        # No selected universes, use all focal data
         if not df1.empty:
             combined_data.extend(df1.to_dict('records'))
-        if not df2.empty:
-            combined_data.extend(df2.to_dict('records'))
     
     if not combined_data:
         return html.Div([
@@ -2179,18 +2222,17 @@ def get_combined_variable_importance_display(df1, df2, profile1, profile2, selec
     if var_importance:
         # Add analysis status indicator
         focal_count = len([i for i in (selected_universes_1 or []) if isinstance(i, int) and i < len(df1)]) if not df1.empty else 0
-        cf_count = len([i for i in (selected_universes_2 or []) if isinstance(i, int) and i < len(df2)]) if not df2.empty else 0
         
-        if focal_count > 0 or cf_count > 0:
+        if focal_count > 0:
             status_indicator = html.Div([
                 html.Span("", style={'fontSize': '14px', 'marginRight': '5px'}),
-                html.Span(f"Analyzing {focal_count + cf_count} selected universes (Focal: {focal_count}, CF: {cf_count})", 
+                html.Span(f"Analyzing {focal_count} selected universes from focal profile only", 
                          style={'fontSize': '11px', 'color': '#28a745', 'fontWeight': 'bold'})
             ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
             var_importance_html.append(status_indicator)
         
-        var_importance_html.append(html.H5("Key Decisions (Combined Analysis)", style={'color': '#6c757d', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
-        var_importance_html.append(html.P("Most impactful methods on recidivism probability across both profiles:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
+        var_importance_html.append(html.H5("Key Decisions (Focal Profile Analysis)", style={'color': '#d63384', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
+        var_importance_html.append(html.P("Most impactful methods on recidivism probability from focal profile regions:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
         
         # Create bar plot for top 5 variables
         if len(var_importance) >= 1:
@@ -2206,7 +2248,7 @@ def get_combined_variable_importance_display(df1, df2, profile1, profile2, selec
                         x=var_values,
                         y=var_names,
                         orientation='h',
-                        marker_color='#6c757d',
+                        marker_color='#d63384',
                         marker_line_color='#fff',
                         marker_line_width=1,
                         text=[f'{val:.3f}' for val in var_values],
@@ -2239,8 +2281,6 @@ def get_combined_variable_importance_display(df1, df2, profile1, profile2, selec
                         style={'height': '100px', 'minWidth': '300px'}
                     )
                 ], style={
-                    'overflowX': 'auto',
-                    'overflowY': 'hidden',
                     'marginBottom': '10px',
                     'border': '1px solid #e9ecef',
                     'borderRadius': '4px',
@@ -2250,8 +2290,8 @@ def get_combined_variable_importance_display(df1, df2, profile1, profile2, selec
         # Add tree nodes section
         if tree_nodes:
             var_importance_html.append(html.Hr(style={'margin': '6px 0', 'borderColor': '#ddd'}))
-            var_importance_html.append(html.H5("Tree Split Rules (Combined)", style={'color': '#6c757d', 'marginTop': '6px', 'marginBottom': '5px', 'fontSize': '14px'}))
-            var_importance_html.append(html.P("Most important decision splits across both profiles:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
+            var_importance_html.append(html.H5("Tree Split Rules (Focal)", style={'color': '#d63384', 'marginTop': '6px', 'marginBottom': '5px', 'fontSize': '14px'}))
+            var_importance_html.append(html.P("Most important decision splits from focal profile regions:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
             
             # Create list of tree nodes
             tree_nodes_html = []
@@ -2267,7 +2307,7 @@ def get_combined_variable_importance_display(df1, df2, profile1, profile2, selec
                         'padding': '3px 6px',
                         'backgroundColor': '#f8f9fa',
                         'borderRadius': '4px',
-                        'borderLeft': '3px solid #6c757d'
+                        'borderLeft': '3px solid #d63384'
                     })
                 )
             
@@ -2282,18 +2322,13 @@ def get_combined_variable_importance_display(df1, df2, profile1, profile2, selec
     
     return html.Div([
         # Brief instruction
-        html.P("This card shows the variable importance analysis for combined universe selections", 
-               style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
         
         # Decision Importance section
         *var_importance_html,
         
         # Additional info
         html.Hr(style={'margin': '8px 0'}),
-        html.P("Profile: Combined Analysis", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
-        html.P(f"Focal: {profile1['age']} years, {profile1['gender'].title()}, {profile1['race'].replace('_', ' ').title()}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
-        html.P(f"CF: {profile2['age']} years, {profile2['gender'].title()}, {profile2['race'].replace('_', ' ').title()}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'marginBottom': '2px'}),
-        html.P(f"Dataset Size: {len(analysis_df)} specifications", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic'})
+        html.P(f"Focal: {profile1['age']} years, {profile1['gender'].title()}, {profile1['race'].replace('_', ' ').title()}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic'})
     ])
 
 def get_variable_importance_display(df, profile, profile_num, selected_universes=None):
@@ -2301,8 +2336,6 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
     # Check if dataframe is empty (no analysis run yet)
     if df.empty:
         return html.Div([
-            html.P("This card shows the variable importance analysis", 
-                   style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
             html.P("No analysis data available. Click 'Run Multiverse Analysis' to generate results.", 
                    style={'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '50px'}),
             html.Hr(style={'margin': '15px 0'}),
@@ -2352,7 +2385,7 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
             ], style={'marginBottom': '8px', 'padding': '4px 8px', 'backgroundColor': '#d4edda', 'borderRadius': '4px', 'border': '1px solid #c3e6cb'})
             var_importance_html.append(status_indicator)
         
-        var_importance_html.append(html.H5(f"Key Decisions (Regression Tree){analysis_title_suffix}", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
+        var_importance_html.append(html.H5("Key Decisions (Regression Tree)", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '0', 'marginBottom': '6px', 'fontSize': '14px'}))
         var_importance_html.append(html.P("Most impactful methods on recidivism probability:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
         
         # Create bar plot for top 5 variables
@@ -2411,8 +2444,6 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
                         style={'height': '100px', 'minWidth': '300px'}
                     )
                 ], style={
-                    'overflowX': 'auto',
-                    'overflowY': 'hidden',
                     'marginBottom': '10px',
                     'border': '1px solid #e9ecef',
                     'borderRadius': '4px',
@@ -2422,7 +2453,7 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
         # Add tree nodes section
         if tree_nodes:
             var_importance_html.append(html.Hr(style={'margin': '6px 0', 'borderColor': '#ddd'}))
-            var_importance_html.append(html.H5(f"Tree Split Rules{analysis_title_suffix}", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '6px', 'marginBottom': '5px', 'fontSize': '14px'}))
+            var_importance_html.append(html.H5("Tree Split Rules", style={'color': '#d63384' if profile_num == 1 else '#0d6efd', 'marginTop': '6px', 'marginBottom': '5px', 'fontSize': '14px'}))
             var_importance_html.append(html.P("Most important decision splits in the regression tree:", style={'fontSize': '12px', 'color': '#666', 'marginBottom': '5px'}))
             
             # Create list of tree nodes
@@ -2459,15 +2490,12 @@ def get_variable_importance_display(df, profile, profile_num, selected_universes
     
     return html.Div([
         # Brief instruction in light gray
-        html.P("This card shows the variable importance analysis", 
-               style={'fontSize': '12px', 'color': '#999', 'fontStyle': 'italic', 'textAlign': 'center', 'marginBottom': '15px', 'backgroundColor': '#f8f9fa', 'padding': '8px', 'borderRadius': '5px'}),
         
         # Decision Importance section
         *var_importance_html,
         
         # Additional info
-        html.Hr(style={'margin': '8px 0'}),
-        html.P(f"Dataset Size: {len(analysis_df)} specifications{analysis_title_suffix}", style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic'})
+        html.Hr(style={'margin': '8px 0'})
     ])
 
 def get_dataset_overview_content(df_nc, df_low_risk):
@@ -2771,11 +2799,7 @@ def update_progress_bars(n_intervals):
     Output('spec-curve-1', 'figure'),
     Output('spec-curve-2', 'figure'),
     Output('combined-spec-grid', 'figure'),
-    Output('variable-importance-title-1', 'children'),
-    Output('variable-importance-title-1', 'style'),
     Output('variable-importance-content-1', 'children'),
-    Output('variable-importance-title-2', 'children'),
-    Output('variable-importance-title-2', 'style'),
     Output('variable-importance-content-2', 'children'),
     Output('dataset-overview-content', 'children'),
     Output('selection-status-indicator', 'children'),
@@ -2988,42 +3012,178 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
         
         # Set variable importance content based on selection state
         if has_focal_selection and has_cf_selection:
-            # Both profiles have selections - show combined analysis in first card and counterfactual in second card
-            variable_importance_title_1 = "Combined Decision Importance"
-            variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#6c757d', 'fontSize': '14px'}
-            variable_importance_content_1 = get_combined_variable_importance_display(df_nc, df_low_risk, profile1, profile2, selected_1, selected_2)
+            # Both profiles have selections - show focal analysis in first card and counterfactual in second card
+            variable_importance_title_1 = "Focal Decision Importance"
+            variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
+            # Wrap content with STEP 4 elements
+            base_content_1 = get_combined_variable_importance_display(df_nc, df_low_risk, profile1, profile2, selected_1, selected_2)
+            variable_importance_content_1 = html.Div([
+                html.Div("STEP 4", style={
+                    'fontSize': '12px', 
+                    'fontWeight': 'bold', 
+                    'color': 'white', 
+                    'backgroundColor': '#6c757d', 
+                    'padding': '4px 8px', 
+                    'borderRadius': '4px',
+                    'textAlign': 'center',
+                    'marginBottom': '12px'
+                }),
+                html.P("View focal decision importance analysis for your selections. This shows which methodological choices most impact the focal profile results.", 
+                       style={'fontSize': '11px', 'color': '#333', 'margin': '0 0 15px 0', 'lineHeight': '1.4', 'fontStyle': 'italic'}),
+                html.H4("Focal Decision Importance", style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px', 'marginTop': '0px'}),
+                base_content_1
+            ])
             
             # Show counterfactual analysis in the second card
             variable_importance_title_2 = "Counterfactual Decision Importance"
             variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
-            variable_importance_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+            # Wrap content with STEP 4 elements
+            base_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+            variable_importance_content_2 = html.Div([
+                html.Div("STEP 4", style={
+                    'fontSize': '12px', 
+                    'fontWeight': 'bold', 
+                    'color': 'white', 
+                    'backgroundColor': '#6c757d', 
+                    'padding': '4px 8px', 
+                    'borderRadius': '4px',
+                    'textAlign': 'center',
+                    'marginBottom': '12px'
+                }),
+                html.P("View counterfactual decision importance analysis for your selections. This shows which methodological choices most impact the counterfactual profile results.", 
+                       style={'fontSize': '11px', 'color': '#333', 'margin': '0 0 15px 0', 'lineHeight': '1.4', 'fontStyle': 'italic'}),
+                html.H4("CF Decision Importance", style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px', 'marginTop': '0px'}),
+                base_content_2
+            ])
         elif has_focal_selection:
             # Only focal profile has selection - use combined regional analysis
-            variable_importance_title_1 = "Focal Decision Importance (Combined)"
+            variable_importance_title_1 = "Focal Decision Importance"
             variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
-            variable_importance_content_1 = get_combined_regional_variable_importance_display(df_nc, profile1, 1, selected_1)
+            # Wrap content with STEP 4 elements
+            base_content_1 = get_combined_regional_variable_importance_display(df_nc, profile1, 1, selected_1)
+            variable_importance_content_1 = html.Div([
+                html.Div("STEP 4", style={
+                    'fontSize': '12px', 
+                    'fontWeight': 'bold', 
+                    'color': 'white', 
+                    'backgroundColor': '#6c757d', 
+                    'padding': '4px 8px', 
+                    'borderRadius': '4px',
+                    'textAlign': 'center',
+                    'marginBottom': '12px'
+                }),
+                html.P("View focal decision importance analysis for your selections. This shows which methodological choices most impact the focal profile results.", 
+                       style={'fontSize': '11px', 'color': '#333', 'margin': '0 0 15px 0', 'lineHeight': '1.4', 'fontStyle': 'italic'}),
+                html.H4("Focal Decision Importance", style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px', 'marginTop': '0px'}),
+                base_content_1
+            ])
             
             variable_importance_title_2 = "CF Decision Importance"
             variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
-            variable_importance_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+            # Wrap content with STEP 4 elements
+            base_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+            variable_importance_content_2 = html.Div([
+                html.Div("STEP 4", style={
+                    'fontSize': '12px', 
+                    'fontWeight': 'bold', 
+                    'color': 'white', 
+                    'backgroundColor': '#6c757d', 
+                    'padding': '4px 8px', 
+                    'borderRadius': '4px',
+                    'textAlign': 'center',
+                    'marginBottom': '12px'
+                }),
+                html.P("View counterfactual decision importance analysis for your selections. This shows which methodological choices most impact the counterfactual profile results.", 
+                       style={'fontSize': '11px', 'color': '#333', 'margin': '0 0 15px 0', 'lineHeight': '1.4', 'fontStyle': 'italic'}),
+                html.H4("CF Decision Importance", style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px', 'marginTop': '0px'}),
+                base_content_2
+            ])
         elif has_cf_selection:
             # Only counterfactual profile has selection - use combined regional analysis
             variable_importance_title_1 = "Focal Decision Importance"
             variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
-            variable_importance_content_1 = get_variable_importance_display(df_nc, profile1, 1, selected_1)
+            # Wrap content with STEP 4 elements
+            base_content_1 = get_variable_importance_display(df_nc, profile1, 1, selected_1)
+            variable_importance_content_1 = html.Div([
+                html.Div("STEP 4", style={
+                    'fontSize': '12px', 
+                    'fontWeight': 'bold', 
+                    'color': 'white', 
+                    'backgroundColor': '#6c757d', 
+                    'padding': '4px 8px', 
+                    'borderRadius': '4px',
+                    'textAlign': 'center',
+                    'marginBottom': '12px'
+                }),
+                html.P("View focal decision importance analysis for your selections. This shows which methodological choices most impact the focal profile results.", 
+                       style={'fontSize': '11px', 'color': '#333', 'margin': '0 0 15px 0', 'lineHeight': '1.4', 'fontStyle': 'italic'}),
+                html.H4("Focal Decision Importance", style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px', 'marginTop': '0px'}),
+                base_content_1
+            ])
             
             variable_importance_title_2 = "CF Decision Importance (Combined)"
             variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
-            variable_importance_content_2 = get_combined_regional_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+            # Wrap content with STEP 4 elements
+            base_content_2 = get_combined_regional_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+            variable_importance_content_2 = html.Div([
+                html.Div("STEP 4", style={
+                    'fontSize': '12px', 
+                    'fontWeight': 'bold', 
+                    'color': 'white', 
+                    'backgroundColor': '#6c757d', 
+                    'padding': '4px 8px', 
+                    'borderRadius': '4px',
+                    'textAlign': 'center',
+                    'marginBottom': '12px'
+                }),
+                html.P("View counterfactual decision importance analysis for your selections. This shows which methodological choices most impact the counterfactual profile results.", 
+                       style={'fontSize': '11px', 'color': '#333', 'margin': '0 0 15px 0', 'lineHeight': '1.4', 'fontStyle': 'italic'}),
+                html.H4("CF Decision Importance", style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px', 'marginTop': '0px'}),
+                base_content_2
+            ])
         else:
             # Show individual profile analyses
             variable_importance_title_1 = "Focal Decision Importance"
             variable_importance_title_style_1 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px'}
-            variable_importance_content_1 = get_variable_importance_display(df_nc, profile1, 1, selected_1)
+            # Wrap content with STEP 4 elements
+            base_content_1 = get_variable_importance_display(df_nc, profile1, 1, selected_1)
+            variable_importance_content_1 = html.Div([
+                html.Div("STEP 4", style={
+                    'fontSize': '12px', 
+                    'fontWeight': 'bold', 
+                    'color': 'white', 
+                    'backgroundColor': '#6c757d', 
+                    'padding': '4px 8px', 
+                    'borderRadius': '4px',
+                    'textAlign': 'center',
+                    'marginBottom': '12px'
+                }),
+                html.P("View focal decision importance analysis for your selections. This shows which methodological choices most impact the focal profile results.", 
+                       style={'fontSize': '11px', 'color': '#333', 'margin': '0 0 15px 0', 'lineHeight': '1.4', 'fontStyle': 'italic'}),
+                html.H4("Focal Decision Importance", style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#d63384', 'fontSize': '14px', 'marginTop': '0px'}),
+                base_content_1
+            ])
             
             variable_importance_title_2 = "CF Decision Importance"
             variable_importance_title_style_2 = {'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px'}
-            variable_importance_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+            # Wrap content with STEP 4 elements
+            base_content_2 = get_variable_importance_display(df_low_risk, profile2, 2, selected_2)
+            variable_importance_content_2 = html.Div([
+                html.Div("STEP 4", style={
+                    'fontSize': '12px', 
+                    'fontWeight': 'bold', 
+                    'color': 'white', 
+                    'backgroundColor': '#6c757d', 
+                    'padding': '4px 8px', 
+                    'borderRadius': '4px',
+                    'textAlign': 'center',
+                    'marginBottom': '12px'
+                }),
+                html.P("View counterfactual decision importance analysis for your selections. This shows which methodological choices most impact the counterfactual profile results.", 
+                       style={'fontSize': '11px', 'color': '#333', 'margin': '0 0 15px 0', 'lineHeight': '1.4', 'fontStyle': 'italic'}),
+                html.H4("CF Decision Importance", style={'textAlign': 'center', 'marginBottom': '10px', 'color': '#0d6efd', 'fontSize': '14px', 'marginTop': '0px'}),
+                base_content_2
+            ])
         
         
         
@@ -3115,8 +3275,7 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
             ])
         
         return (spec_curve_1, spec_curve_2, combined_spec_grid, 
-                variable_importance_title_1, variable_importance_title_style_1, variable_importance_content_1,
-                variable_importance_title_2, variable_importance_title_style_2, variable_importance_content_2,
+                variable_importance_content_1, variable_importance_content_2,
                 dataset_overview_content, selection_status)
     
     except Exception as e:
