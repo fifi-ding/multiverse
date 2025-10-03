@@ -22,17 +22,37 @@ rpart_plot_pkg = importr('rpart.plot')
 
 # R code for decision tree analysis
 r_tree_code = """
+# Helper function to safely reset row names
+reset_rownames <- function(data) {
+    if (is.data.frame(data)) {
+        row.names(data) <- NULL
+    }
+    return(data)
+}
+
 # Function to create decision tree and get variable importance
 create_decision_tree <- function(data) {
+    # Reset row names to avoid conversion issues
+    data <- reset_rownames(data)
+    
     # Create the decision tree
-    tree <- rpart(recidivism_prob ~ preprocessing + split + age_category + 
-                  imbalancing_method + predictor_method + define_recid_method,
+    tree <- rpart(recidivism_prob ~ scaling + convert_followup + split + age_category + 
+                  imbalancing + model + predictor + define_recid,
                   data = data,
                   method = "anova",
                   control = rpart.control(minsplit = 2, cp = 0))
     
     # Get variable importance
     var_importance <- tree$variable.importance
+    
+    # Handle case where variable.importance is NULL (no splits in tree)
+    if (is.null(var_importance)) {
+        # Create a default variable importance with all variables set to 0
+        all_vars <- c("scaling", "convert_followup", "split", "age_category", 
+                     "imbalancing", "model", "predictor", "define_recid")
+        var_importance <- rep(0, length(all_vars))
+        names(var_importance) <- all_vars
+    }
     
     # Ensure variable importance has proper names
     if (is.null(names(var_importance)) || length(names(var_importance)) == 0) {
@@ -55,22 +75,32 @@ create_decision_tree <- function(data) {
 
 # Function to get variable importance for a dataset
 get_variable_importance <- function(data) {
-    result <- create_decision_tree(data)
-    var_importance <- result$var_importance
-    
-    # Debug: print what we get from variable.importance
-    cat("Variable importance result:\n")
-    print(var_importance)
-    cat("Names:", names(var_importance), "\n")
-    
-    # Sort by importance values (descending) to ensure proper ordering
-    var_importance_sorted <- sort(var_importance, decreasing = TRUE)
-    
-    cat("Sorted variable importance:\n")
-    print(var_importance_sorted)
-    
-    # Return sorted result
-    return(var_importance_sorted)
+    tryCatch({
+        result <- create_decision_tree(data)
+        var_importance <- result$var_importance
+        
+        # Debug: print what we get from variable.importance
+        cat("Variable importance result:\n")
+        print(var_importance)
+        cat("Names:", names(var_importance), "\n")
+        
+        # Sort by importance values (descending) to ensure proper ordering
+        var_importance_sorted <- sort(var_importance, decreasing = TRUE)
+        
+        cat("Sorted variable importance:\n")
+        print(var_importance_sorted)
+        
+        # Return sorted result
+        return(var_importance_sorted)
+    }, error = function(e) {
+        cat("Error in get_variable_importance:", e$message, "\n")
+        # Return default variable importance with all variables set to 0
+        all_vars <- c("scaling", "convert_followup", "split", "age_category", 
+                     "imbalancing", "model", "predictor", "define_recid")
+        default_importance <- rep(0, length(all_vars))
+        names(default_importance) <- all_vars
+        return(default_importance)
+    })
 }
 
 #' Get and rank the split rules from an rpart tree by their position in the tree.
@@ -89,7 +119,7 @@ get_split_rules_by_position <- function(tree) {
 
   # 1. Filter for internal nodes only (where splits occur)
   internal_nodes_frame <- frame[frame$var != "<leaf>", ]
-  if (nrow(internal_nodes_frame) == 0) {
+  if (nrow(internal_nodes_frame) == 0 || is.null(splits)) {
     return(data.frame()) # Return empty frame if no splits
   }
   
@@ -98,10 +128,19 @@ get_split_rules_by_position <- function(tree) {
   # 2. Get the paths to the direct children of these nodes
   left_children <- node_ids * 2
   right_children <- node_ids * 2 + 1
-  child_paths <- path.rpart(tree, nodes = c(left_children, right_children), print.it = FALSE)
   
-  left_rules <- sapply(child_paths[1:length(node_ids)], tail, 1)
-  right_rules <- sapply(child_paths[(length(node_ids) + 1):length(child_paths)], tail, 1)
+  # Safely get child paths
+  tryCatch({
+    child_paths <- path.rpart(tree, nodes = c(left_children, right_children), print.it = FALSE)
+    
+    left_rules <- sapply(child_paths[1:length(node_ids)], tail, 1)
+    right_rules <- sapply(child_paths[(length(node_ids) + 1):length(child_paths)], tail, 1)
+  }, error = function(e) {
+    # If path.rpart fails, create simple rules
+    left_rules <- rep("", length(node_ids))
+    right_rules <- rep("", length(node_ids))
+    child_paths <- list()
+  })
 
   # 3. Combine everything into a data frame
   split_rules_df <- data.frame(
@@ -126,15 +165,16 @@ get_split_rules_by_position <- function(tree) {
 
 # Function to get regression tree nodes and split rules
 get_tree_nodes <- function(data) {
-    result <- create_decision_tree(data)
-    tree <- result$tree
-    
-    # Use the new function to get split rules by position
-    ranked_splits_by_position <- get_split_rules_by_position(tree)
-    
-    # Convert to the expected format for backward compatibility
-    node_rules <- list()
-    if (nrow(ranked_splits_by_position) > 0) {
+    tryCatch({
+        result <- create_decision_tree(data)
+        tree <- result$tree
+        
+        # Use the new function to get split rules by position
+        ranked_splits_by_position <- get_split_rules_by_position(tree)
+        
+        # Convert to the expected format for backward compatibility
+        node_rules <- list()
+        if (nrow(ranked_splits_by_position) > 0) {
         for (i in 1:nrow(ranked_splits_by_position)) {
             node_rules[[length(node_rules) + 1]] <- list(
                 rank = ranked_splits_by_position$rank[i],
@@ -146,6 +186,11 @@ get_tree_nodes <- function(data) {
     }
     
     return(node_rules)
+    }, error = function(e) {
+        cat("Error in get_tree_nodes:", e$message, "\n")
+        # Return empty list if analysis fails
+        return(list())
+    })
 }
 """
 
@@ -165,6 +210,10 @@ library(dplyr)
 # Load the analysis data
 # You'll need to adjust this path to your actual data file
 analysis_1978 <- read.csv('nc_prisoner_1978.csv')
+
+# Fix row names to avoid conversion issues with rpy2
+# Reset row names to simple integer sequence
+rownames(analysis_1978) <- NULL
 
 # Define helper functions that might be missing
 calculate_recid_surv <- function(surv_pred, time_months) {
@@ -202,10 +251,23 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
         profile_key = "counterfactual"
         profile_name = "Counterfactual"
     
+    print(f"=== run_multiverse_analysis_with_profile called ===")
+    print(f"Parameters: age={profile_age}, gender={profile_gender}, race={profile_race}")
+    print(f"Detected profile: {profile_key} ({profile_name})")
+    print(f"Is shared analysis: {is_shared_analysis}")
+    print(f"Current progress counts: focal={progress_counts['focal']}, counterfactual={progress_counts['counterfactual']}")
+    
     try:
-        # Reset progress for this profile
-        progress_updates[profile_key] = []
-        progress_counts[profile_key] = 0
+        # Only reset progress if not already at completion (meaning it's being reused)
+        if progress_counts[profile_key] < total_universes:
+            print(f"Resetting progress for {profile_key}")
+            progress_updates[profile_key] = []
+            progress_counts[profile_key] = 0
+        else:
+            print(f"NOT resetting progress for {profile_key} - already at {progress_counts[profile_key]}")
+            # If it's a reused profile, just update the message
+            if len(progress_updates[profile_key]) == 0:
+                progress_updates[profile_key].append(f"{profile_name} profile results reused from previous analysis")
         
         # If this is a shared analysis, also reset the other profile's progress
         if is_shared_analysis:
@@ -215,40 +277,52 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
         
         # Update progress
         progress_updates[profile_key].append(f"Starting {profile_name} analysis...")
-        progress_updates[profile_key].append(f"Generating 2700 universes...")
+        progress_updates[profile_key].append(f"Generating 9600 universes in 3 parts...")
         
         # If shared analysis, update both profiles
         if is_shared_analysis:
             other_profile_name = "Counterfactual" if profile_name == "Focal" else "Focal"
             progress_updates[other_profile_key].append(f"Starting {other_profile_name} analysis...")
-            progress_updates[other_profile_key].append(f"Generating 2700 universes...")
+            progress_updates[other_profile_key].append(f"Generating 9600 universes in 3 parts...")
         
         with localconverter(robjects.default_converter + pandas2ri.converter):
-            # Get the R function
-            r_run_multiverse = robjects.globalenv['run_multiverse_analysis']
+            # Get the R functions - use new NC garden approach for all three parts
+            r_run_multiverse_part1 = robjects.globalenv['generate_nc_garden']
+            r_run_multiverse_part2 = robjects.globalenv['generate_nc_garden_part2']
+            r_run_multiverse_part3 = robjects.globalenv['generate_nc_garden_part3']
             
-            # Define the procedural choice options
-            preprocessing_options = robjects.StrVector(["Method_A", "Method_B", "Method_C"])
+            # Define the procedural choice options for new NC garden approach
+            scaling_options = robjects.StrVector(["schmidt_scale", "no_scaling"])
+            convert_followup_options = robjects.StrVector(["strict_def", "general_def"])
             split_options = robjects.StrVector(["1:2", "6:4", "7:3", "8:2"])
-            age_cat_options = robjects.StrVector(["raw_age_year", "age_cat_compas", "age_cat_nij"])
-            imbalancing_options = robjects.StrVector(["Undersampling", "Oversampling", "Male Only", "Female Only", "Weighting"])
-            predictor_options = robjects.StrVector(["full", "schmidt", "protected"])
+            age_cat_options = robjects.StrVector(["year", "schmidt_age", "compas", "nij"])
+            imbalancing_options = robjects.StrVector(["under", "over", "male only", "female only", "weight"])
+            model_options = robjects.StrVector(["survival", "logistic"])
+            predictor_options = robjects.StrVector(["full", "schmidt", "fair"])
             define_recid_options = robjects.StrVector(["1yr", "2yr", "3yr", "4yr", "5yr"])
             
-            # Convert profile parameters to R types
-            profile_age_r = robjects.IntVector([profile_age])
-            profile_gender_r = robjects.StrVector([profile_gender])
-            profile_race_r = robjects.StrVector([profile_race])
+            # Profile parameters will be passed directly to R functions
+            # They expect: profile_age (numeric), profile_gender (string), profile_race (string)
             
-            # Load the analysis data
-            analysis_data = robjects.globalenv['analysis_1978']
+            # Load the analysis data with proper row name handling
+            try:
+                # First, reset row names in R to avoid conversion issues
+                robjects.r('row.names(analysis_1978) <- NULL')
+                analysis_data = robjects.globalenv['analysis_1978']
+            except Exception as e:
+                print(f"Warning: Issue loading analysis data: {e}")
+                # Try to reload the data from file
+                robjects.r("analysis_1978 <- read.csv('nc_prisoner_1978.csv')")
+                robjects.r('row.names(analysis_1978) <- NULL')
+                analysis_data = robjects.globalenv['analysis_1978']
+            
             print(f"Running {profile_name} analysis: Age={profile_age}, Gender={profile_gender}, Race={profile_race}")
             
             # Start progress monitoring in a separate thread
             def monitor_progress():
                 import os
                 import time
-                progress_file = f"progress_{profile_age}_{profile_gender}_{profile_race}.txt"
+                progress_file = "progress_nc_garden.txt"
                 
                 # Clear any existing progress file
                 if os.path.exists(progress_file):
@@ -267,27 +341,36 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
                                         # Extract universe number
                                         parts = last_line.split()
                                         universe_num = int(parts[1])
-                                        total_universes = int(parts[3])
-                                        progress_counts[profile_key] = universe_num
+                                        total_universes_from_file = int(parts[3])
+                                        
+                                        # Only update progress if not already at completion (for reused profiles)
+                                        if progress_counts[profile_key] < total_universes or universe_num > progress_counts[profile_key]:
+                                            progress_counts[profile_key] = universe_num
                                         
                                         # If shared analysis, update both profiles' progress
                                         if is_shared_analysis:
                                             other_profile_key = "counterfactual" if profile_key == "focal" else "focal"
-                                            progress_counts[other_profile_key] = universe_num
+                                            if progress_counts[other_profile_key] < total_universes or universe_num > progress_counts[other_profile_key]:
+                                                progress_counts[other_profile_key] = universe_num
                                         
-                                        # Update progress text every 500 universes
-                                        if universe_num % 500 == 0:
-                                            progress_updates[profile_key].append(f"Processed {universe_num}/{total_universes} universes...")
+                                        # Update progress text every 100 universes
+                                        if universe_num % 100 == 0:
+                                            progress_updates[profile_key].append(f"Processing Universe {universe_num}/{total_universes}...")
                                             if is_shared_analysis:
                                                 other_profile_name = "Counterfactual" if profile_name == "Focal" else "Focal"
-                                                progress_updates[other_profile_key].append(f"Processed {universe_num}/{total_universes} universes...")
+                                                progress_updates[other_profile_key].append(f"Processing Universe {universe_num}/{total_universes}...")
                                         
                                         # Check if analysis is complete
                                         if universe_num >= total_universes:
+                                            print(f"Progress monitoring: Detected completion at {universe_num}/{total_universes}")
                                             break
-                        except:
+                        except Exception as e:
+                            # Log errors but continue monitoring
+                            print(f"Progress monitoring error: {e}")
                             pass
                     time.sleep(0.5)  # Check every 0.5 seconds
+                
+                print("Progress monitoring thread exiting")
             
             # Start progress monitoring
             import threading
@@ -295,30 +378,109 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
             progress_thread.daemon = True
             progress_thread.start()
             
-            # Call the R function with all parameters
-            results = r_run_multiverse(analysis_data, preprocessing_options, split_options, 
-                                     age_cat_options, imbalancing_options, predictor_options, 
-                                     define_recid_options, profile_age_r, profile_gender_r, profile_race_r)
+            # Run Part 1: universes 1-3000
+            progress_updates[profile_key].append(f"Running Part 1 (universes 1-3000)...")
+            if is_shared_analysis:
+                progress_updates[other_profile_key].append(f"Running Part 1 (universes 1-3000)...")
             
-            # Convert R results to pandas DataFrame
-            results_df = robjects.conversion.rpy2py(results)
+            print(f"Calling R function Part 1 with profile: age={profile_age}, gender={profile_gender}, race={profile_race}")
+            try:
+                results_part1 = r_run_multiverse_part1(analysis_data, scaling_options, convert_followup_options,
+                                                       age_cat_options, split_options, imbalancing_options, 
+                                                       model_options, predictor_options, define_recid_options,
+                                                       profile_age, profile_gender, profile_race)
+                print("Part 1 R function completed, converting to pandas...")
+                results_df_part1 = robjects.conversion.rpy2py(results_part1)
+                print(f"Part 1 completed: {len(results_df_part1)} universes")
+            except Exception as e:
+                print(f"ERROR in Part 1: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+            progress_counts[profile_key] = 3000
+            if is_shared_analysis:
+                progress_counts[other_profile_key] = 3000
+            
+            # Run Part 2: universes 3001-6000
+            progress_updates[profile_key].append(f"Running Part 2 (universes 3001-6000)...")
+            if is_shared_analysis:
+                progress_updates[other_profile_key].append(f"Running Part 2 (universes 3001-6000)...")
+            
+            print(f"Calling R function Part 2 with profile: age={profile_age}, gender={profile_gender}, race={profile_race}")
+            try:
+                results_part2 = r_run_multiverse_part2(analysis_data, scaling_options, convert_followup_options,
+                                                       age_cat_options, split_options, imbalancing_options, 
+                                                       model_options, predictor_options, define_recid_options,
+                                                       profile_age, profile_gender, profile_race)
+                print("Part 2 R function completed, converting to pandas...")
+                results_df_part2 = robjects.conversion.rpy2py(results_part2)
+                print(f"Part 2 completed: {len(results_df_part2)} universes")
+            except Exception as e:
+                print(f"ERROR in Part 2: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+            progress_counts[profile_key] = 6000
+            if is_shared_analysis:
+                progress_counts[other_profile_key] = 6000
+            
+            # Run Part 3: universes 6001-9600
+            progress_updates[profile_key].append(f"Running Part 3 (universes 6001-9600)...")
+            if is_shared_analysis:
+                progress_updates[other_profile_key].append(f"Running Part 3 (universes 6001-9600)...")
+            
+            print(f"Calling R function Part 3 with profile: age={profile_age}, gender={profile_gender}, race={profile_race}")
+            try:
+                results_part3 = r_run_multiverse_part3(analysis_data, scaling_options, convert_followup_options,
+                                                       age_cat_options, split_options, imbalancing_options, 
+                                                       model_options, predictor_options, define_recid_options,
+                                                       profile_age, profile_gender, profile_race)
+                print("Part 3 R function completed, converting to pandas...")
+                results_df_part3 = robjects.conversion.rpy2py(results_part3)
+                print(f"Part 3 completed: {len(results_df_part3)} universes")
+            except Exception as e:
+                print(f"ERROR in Part 3: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+            
+            # Combine all three parts into one DataFrame
+            print("Combining all three parts into one DataFrame...")
+            results_df = pd.concat([results_df_part1, results_df_part2, results_df_part3], ignore_index=True)
+            print(f"Combined DataFrame: {len(results_df)} total universes")
+            print(f"DataFrame columns: {list(results_df.columns)}")
+            print(f"Scaling column unique values: {results_df['scaling'].unique() if 'scaling' in results_df.columns else 'SCALING COLUMN NOT FOUND'}")
+            print(f"First few rows:\n{results_df.head()}")
+            
+            # Convert factor columns to strings if they came as numeric codes from R
+            categorical_columns = ['scaling', 'convert_followup', 'split', 'age_category', 
+                                  'imbalancing', 'model', 'predictor', 'define_recid']
+            for col in categorical_columns:
+                if col in results_df.columns:
+                    # If column is numeric (factor codes), we have a problem
+                    if results_df[col].dtype in ['int64', 'int32', 'float64', 'float32']:
+                        print(f"WARNING: {col} column is numeric type {results_df[col].dtype}, R factors may not have converted properly")
+                    # Convert to string type to ensure consistency
+                    results_df[col] = results_df[col].astype(str)
+            
+            print(f"After type conversion - Scaling unique values: {results_df['scaling'].unique()}")
             
             # Finalize progress
-            progress_counts[profile_key] = 2700
-            progress_updates[profile_key].append(f"Generated {len(results_df)} universes")
+            progress_counts[profile_key] = 9600
+            progress_updates[profile_key].append(f"Completed: Generated all {len(results_df)} universes")
             progress_updates[profile_key].append(f"{profile_name} analysis completed!")
             
             # If shared analysis, finalize both profiles
             if is_shared_analysis:
                 other_profile_key = "counterfactual" if profile_key == "focal" else "focal"
                 other_profile_name = "Counterfactual" if profile_name == "Focal" else "Focal"
-                progress_counts[other_profile_key] = 2700
-                progress_updates[other_profile_key].append(f"Generated {len(results_df)} universes")
+                progress_counts[other_profile_key] = 9600
+                progress_updates[other_profile_key].append(f"Completed: Generated all {len(results_df)} universes")
                 progress_updates[other_profile_key].append(f"{other_profile_name} analysis completed!")
             
             # Clean up progress file
             import os
-            progress_file = f"progress_{profile_age}_{profile_gender}_{profile_race}.txt"
+            progress_file = "progress_nc_garden.txt"
             if os.path.exists(progress_file):
                 os.remove(progress_file)
         
@@ -337,12 +499,14 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
 
 # Data loaded and ready for dashboard
 
-# Constants for dropdown options - using the same values as defined in combinations.r
-PREPROCESSING_OPTIONS = [{'label': method, 'value': method} for method in ["Method_A", "Method_B", "Method_C"]]
+# Constants for dropdown options - using the new NC garden parameter values
+SCALING_OPTIONS = [{'label': method, 'value': method} for method in ["schmidt_scale", "no_scaling"]]
+CONVERT_FOLLOWUP_OPTIONS = [{'label': method, 'value': method} for method in ["strict_def", "general_def"]]
 SPLIT_OPTIONS = [{'label': split, 'value': split} for split in ["1:2", "6:4", "7:3", "8:2"]]
-AGE_CATEGORY_OPTIONS = [{'label': age_cat, 'value': age_cat} for age_cat in ["raw_age_year", "age_cat_compas", "age_cat_nij"]]
-IMBALANCING_OPTIONS = [{'label': method, 'value': method} for method in ["Undersampling", "Oversampling", "Male Only", "Female Only", "Weighting"]]
-PREDICTOR_OPTIONS = [{'label': method, 'value': method} for method in ["full", "schmidt", "protected"]]
+AGE_CATEGORY_OPTIONS = [{'label': age_cat, 'value': age_cat} for age_cat in ["year", "schmidt_age", "compas", "nij"]]
+IMBALANCING_OPTIONS = [{'label': method, 'value': method} for method in ["under", "over", "male only", "female only", "weight"]]
+MODEL_OPTIONS = [{'label': method, 'value': method} for method in ["survival", "logistic"]]
+PREDICTOR_OPTIONS = [{'label': method, 'value': method} for method in ["full", "schmidt", "fair"]]
 RECID_METHOD_OPTIONS = [{'label': method, 'value': method} for method in ["1yr", "2yr", "3yr", "4yr", "5yr"]]
 
 # Initialize the Dash app
@@ -568,7 +732,7 @@ def create_layout():
                                     'transition': 'width 0.3s ease'
                                 }
                             ),
-                            html.P(id='focal-progress-text', children="0/2700 universes", 
+                            html.P(id='focal-progress-text', children="Universe 0/9600", 
                                    style={'fontSize': '10px', 'color': '#666', 'marginTop': '2px'})
                         ], style={'marginBottom': '10px'}),
                         
@@ -584,7 +748,7 @@ def create_layout():
                                     'transition': 'width 0.3s ease'
                                 }
                             ),
-                            html.P(id='counterfactual-progress-text', children="0/2700 universes", 
+                            html.P(id='counterfactual-progress-text', children="Universe 0/9600", 
                                    style={'fontSize': '10px', 'color': '#666', 'marginTop': '2px'})
                         ], style={'marginBottom': '10px'}),
                         
@@ -1155,39 +1319,45 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
     grid_data = []
     y_labels = []
     
-    # Define procedural choices and their options
+    # Define procedural choices and their options for new NC garden approach
     procedural_choices = [
-        ('define_recid_method', ['5yr', '4yr', '3yr', '2yr', '1yr']),
-        ('predictor_method', ['protected', 'schmidt', 'full']),
-        ('imbalancing_method', ['Female Only', 'Male Only', 'Oversampling', 'Undersampling', 'Weighting']),
-        ('age_category', ['age_cat_nij', 'age_cat_compas', 'raw_age_year']),
+        ('define_recid', ['5yr', '4yr', '3yr', '2yr', '1yr']),
+        ('predictor', ['fair', 'schmidt', 'full']),
+        ('model', ['logistic', 'survival']),
+        ('imbalancing', ['weight', 'female only', 'male only', 'over', 'under']),
+        ('age_category', ['nij', 'compas', 'schmidt_age', 'year']),
         ('split', ['8:2', '7:3', '6:4', '1:2']),
-        ('preprocessing', ['Method_C', 'Method_B', 'Method_A'])
+        ('convert_followup', ['general_def', 'strict_def']),
+        ('scaling', ['schmidt_scale', 'no_scaling'])  # Show both scaling options
     ]
     
     # Create the grid data matrix
     for choice_name, options in procedural_choices:
         column_display_name = choice_name.replace('_', ' ').title()
         
-        # Add the options for this category
+        # Add the options FIRST (they will appear below the header in the visual)
         for option in options:
             y_labels.append(f"    {option}")
             row = []
             
             for data_row in combined_data:
                 # Determine if this option is selected for this universe
-                if choice_name == 'define_recid_method':
-                    selected = data_row['define_recid_method'] == option
-                elif choice_name == 'predictor_method':
-                    selected = data_row['predictor_method'] == option
-                elif choice_name == 'imbalancing_method':
-                    selected = data_row['imbalancing_method'] == option
+                if choice_name == 'define_recid':
+                    selected = data_row['define_recid'] == option
+                elif choice_name == 'predictor':
+                    selected = data_row['predictor'] == option
+                elif choice_name == 'imbalancing':
+                    selected = data_row['imbalancing'] == option
                 elif choice_name == 'age_category':
                     selected = data_row['age_category'] == option
                 elif choice_name == 'split':
                     selected = data_row['split'] == option
-                elif choice_name == 'preprocessing':
-                    selected = data_row['preprocessing'] == option
+                elif choice_name == 'scaling':
+                    selected = data_row['scaling'] == option
+                elif choice_name == 'convert_followup':
+                    selected = data_row['convert_followup'] == option
+                elif choice_name == 'model':
+                    selected = data_row['model'] == option
                 else:
                     selected = False
                 
@@ -1199,7 +1369,7 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
             
             grid_data.append(row)
         
-        # Add the category header
+        # Add the category header AFTER the options (will appear above in visual due to y-axis ordering)
         y_labels.append(f"{column_display_name}")
         header_row = [0] * len(combined_data)
         grid_data.append(header_row)
@@ -1343,6 +1513,7 @@ def create_combined_specification_grid(df1, df2, selected_universes_1=None, sele
         yaxis_title='Pipeline Choices',
         height=500,
         showlegend=False,
+        margin=dict(l=150, r=50, t=80, b=50),  # Increased left margin for y-axis labels
         yaxis=dict(
             tickmode='array',
             tickvals=list(range(len(y_labels))),
@@ -1423,46 +1594,54 @@ def create_specification_grid(df, profile_num, selected_universes=None, highligh
     # Define procedural choices and their options, grouped as shown in the image
     procedural_choices = [
         # Recidivism time periods (grouped together)
-        ('define_recid_method', ['5yr', '4yr', '3yr', '2yr', '1yr']),
+        ('define_recid', ['5yr', '4yr', '3yr', '2yr', '1yr']),
         # Predictor methods (grouped together)
-        ('predictor_method', ['protected', 'schmidt', 'full']),
+        ('predictor', ['fair', 'schmidt', 'full']),
+        # Model types (grouped together)
+        ('model', ['logistic', 'survival']),
         # Imbalancing methods (grouped together)
-        ('imbalancing_method', ['Female Only', 'Male Only', 'Oversampling', 'Undersampling', 'Weighting']),
+        ('imbalancing', ['weight', 'female only', 'male only', 'over', 'under']),
         # Age categories (grouped together)
-        ('age_category', ['age_cat_nij', 'age_cat_compas', 'raw_age_year']),
+        ('age_category', ['nij', 'compas', 'schmidt_age', 'year']),
         # Split ratios (grouped together)
         ('split', ['8:2', '7:3', '6:4', '1:2']),
-        # Preprocessing methods (grouped together)
-        ('preprocessing', ['Method_C', 'Method_B', 'Method_A'])
+        # Convert followup methods (grouped together)
+        ('convert_followup', ['general_def', 'strict_def']),
+        # Scaling methods (grouped together)
+        ('scaling', ['no_scaling', 'schmidt_scale'])
     ]
     
     # Create the grid data matrix
     grid_data = []
     y_labels = []
     
-    # First, add category headers and their options
+    # Add category headers and their options
     for choice_name, options in procedural_choices:
         column_display_name = choice_name.replace('_', ' ').title()
         
-        # Add the options for this category first (indented)
+        # Add the options FIRST (they will appear below the header in the visual)
         for option in options:
             y_labels.append(f"    {option}")  # More indented option for better hierarchy
             row = []
             
             for _, row_data in df_display.iterrows():
                 # Determine if this option is selected for this universe
-                if choice_name == 'define_recid_method':
-                    selected = row_data['define_recid_method'] == option
-                elif choice_name == 'predictor_method':
-                    selected = row_data['predictor_method'] == option
-                elif choice_name == 'imbalancing_method':
-                    selected = row_data['imbalancing_method'] == option
+                if choice_name == 'define_recid':
+                    selected = row_data['define_recid'] == option
+                elif choice_name == 'predictor':
+                    selected = row_data['predictor'] == option
+                elif choice_name == 'imbalancing':
+                    selected = row_data['imbalancing'] == option
                 elif choice_name == 'age_category':
                     selected = row_data['age_category'] == option
                 elif choice_name == 'split':
                     selected = row_data['split'] == option
-                elif choice_name == 'preprocessing':
-                    selected = row_data['preprocessing'] == option
+                elif choice_name == 'scaling':
+                    selected = row_data['scaling'] == option
+                elif choice_name == 'convert_followup':
+                    selected = row_data['convert_followup'] == option
+                elif choice_name == 'model':
+                    selected = row_data['model'] == option
                 else:
                     selected = False
                 
@@ -1474,9 +1653,8 @@ def create_specification_grid(df, profile_num, selected_universes=None, highligh
             
             grid_data.append(row)
         
-        # Then add the category header (this will appear above the options due to Plotly's y-axis ordering)
+        # Add the category header AFTER the options (will appear above in visual due to y-axis ordering)
         y_labels.append(f"{column_display_name}")  # Category header
-        
         # Create a header row (all 0 to indicate it's a header)
         header_row = [0] * len(df_display)
         grid_data.append(header_row)
@@ -1642,6 +1820,7 @@ def create_specification_grid(df, profile_num, selected_universes=None, highligh
         yaxis_title='Pipeline Choices',
         height=500,
         showlegend=False,
+        margin=dict(l=150, r=50, t=80, b=50),  # Increased left margin for y-axis labels
         yaxis=dict(
             tickmode='array',
             tickvals=list(range(len(y_labels))),
@@ -1695,19 +1874,23 @@ def create_boxplot(df, profile, profile_num):
     
     # Add vertical line for profile prediction
     profile_prob = df[
-        (df['preprocessing'] == profile['preprocessing']) &
+        (df['scaling'] == profile['scaling']) &
+        (df['convert_followup'] == profile['convert_followup']) &
         (df['split'] == profile['split']) &
         (df['age_category'] == profile['age_category']) &
-        (df['imbalancing_method'] == profile['imbalancing_method']) &
-        (df['predictor_method'] == profile['predictor_method']) &
-        (df['define_recid_method'] == profile['define_recid_method'])
+        (df['imbalancing'] == profile['imbalancing']) &
+        (df['model'] == profile['model']) &
+        (df['predictor'] == profile['predictor']) &
+        (df['define_recid'] == profile['define_recid'])
     ]['recidivism_prob'].iloc[0] if len(df[
-        (df['preprocessing'] == profile['preprocessing']) &
+        (df['scaling'] == profile['scaling']) &
+        (df['convert_followup'] == profile['convert_followup']) &
         (df['split'] == profile['split']) &
         (df['age_category'] == profile['age_category']) &
-        (df['imbalancing_method'] == profile['imbalancing_method']) &
-        (df['predictor_method'] == profile['predictor_method']) &
-        (df['define_recid_method'] == profile['define_recid_method'])
+        (df['imbalancing'] == profile['imbalancing']) &
+        (df['model'] == profile['model']) &
+        (df['predictor'] == profile['predictor']) &
+        (df['define_recid'] == profile['define_recid'])
     ]) > 0 else 0
     
     profile_color = '#d63384' if profile_num == 1 else '#0d6efd'
@@ -1734,13 +1917,26 @@ def create_boxplot(df, profile, profile_num):
 def get_variable_importance_r(df):
     """Get variable importance using R decision tree analysis"""
     try:
+        # Check if dataframe is empty or has insufficient data
+        if df.empty or len(df) < 2:
+            print("Warning: Insufficient data for variable importance analysis")
+            return []
+            
         with localconverter(robjects.default_converter + pandas2ri.converter):
             # Convert pandas DataFrame to R DataFrame
-            r_df = robjects.conversion.py2rpy(df)
+            # Reset index to avoid row names issues during conversion
+            df_reset = df.reset_index(drop=True)
+            r_df = robjects.conversion.py2rpy(df_reset)
             
             # Call R function to get variable importance
             r_get_var_importance = robjects.globalenv['get_variable_importance']
-            var_importance = r_get_var_importance(r_df)
+            try:
+                var_importance = r_get_var_importance(r_df)
+            except Exception as r_error:
+                print(f"R error in variable importance: {r_error}")
+                # Return default variable importance if R fails
+                return [("scaling", 0), ("convert_followup", 0), ("split", 0), ("age_category", 0), 
+                       ("imbalancing", 0), ("model", 0), ("predictor", 0), ("define_recid", 0)]
             
             # Convert R vector to Python dictionary
             var_importance_dict = {}
@@ -1752,8 +1948,8 @@ def get_variable_importance_r(df):
             print(f"R var_importance values: {list(var_importance)}")
             
             # Expected variable names in the order they should appear
-            expected_vars = ["predictor_method", "define_recid_method", "imbalancing_method", 
-                           "split", "preprocessing", "age_category"]
+            expected_vars = ["predictor", "define_recid", "imbalancing", "model",
+                           "split", "scaling", "convert_followup", "age_category"]
             
             # Use the variable names from the R results (which should now be properly named)
             # The R function now returns named vectors, so we can extract the names
@@ -1807,13 +2003,25 @@ def get_variable_importance_r(df):
 def get_tree_nodes_r(df):
     """Get regression tree nodes and split rules using R analysis"""
     try:
+        # Check if dataframe is empty or has insufficient data
+        if df.empty or len(df) < 2:
+            print("Warning: Insufficient data for tree nodes analysis")
+            return []
+            
         with localconverter(robjects.default_converter + pandas2ri.converter):
             # Convert pandas DataFrame to R DataFrame
-            r_df = robjects.conversion.py2rpy(df)
+            # Reset index to avoid row names issues during conversion
+            df_reset = df.reset_index(drop=True)
+            r_df = robjects.conversion.py2rpy(df_reset)
             
             # Call R function to get tree nodes
             r_get_tree_nodes = robjects.globalenv['get_tree_nodes']
-            tree_nodes = r_get_tree_nodes(r_df)
+            try:
+                tree_nodes = r_get_tree_nodes(r_df)
+            except Exception as r_error:
+                print(f"R error in tree nodes: {r_error}")
+                # Return empty list if R fails
+                return []
             
             # Convert R list to Python list
             node_rules = []
@@ -2515,12 +2723,14 @@ def get_dataset_overview_content(df_nc, df_low_risk):
     return html.Div([
         html.P("Number of choices for each decision", style={'fontSize': '12px', 'color': '#333', 'marginBottom': '8px', 'fontWeight': 'bold', 'textAlign': 'center'}),
         html.P(f"Total Universes: {total_specs}", style={'fontSize': '11px', 'marginBottom': '3px'}),
-        html.P(f"Preprocessing: {df['preprocessing'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Scaling: {df['scaling'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Convert Followup: {df['convert_followup'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
         html.P(f"Split Ratios: {df['split'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
         html.P(f"Age Categories: {df['age_category'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
-        html.P(f"Imbalancing: {df['imbalancing_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
-        html.P(f"Predictors: {df['predictor_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
-        html.P(f"Recidivism Definitions: {df['define_recid_method'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Imbalancing: {df['imbalancing'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Model: {df['model'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Predictors: {df['predictor'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
+        html.P(f"Recidivism Definitions: {df['define_recid'].nunique()}", style={'fontSize': '11px', 'marginBottom': '3px'}),
         html.Hr(style={'margin': '8px 0', 'borderColor': '#ddd'}),
         html.P("Note: Both profiles use the same method combinations with different demographic parameters.", 
                style={'fontSize': '10px', 'color': '#666', 'fontStyle': 'italic', 'textAlign': 'center', 'marginTop': '5px'})
@@ -2701,7 +2911,7 @@ def clear_selections(clear_all_clicks, clear_focal_clicks, clear_cf_clicks):
 # Global variables to store progress updates
 progress_updates = {"focal": [], "counterfactual": []}
 progress_counts = {"focal": 0, "counterfactual": 0}
-total_universes = 2700
+total_universes = 9600
 
 # Global variable to track if focal profile has been run
 focal_profile_has_been_run = False
@@ -2783,14 +2993,14 @@ def update_progress_bars(n_intervals):
     
     # Update text based on analysis status
     if profiles_running_together:
-        focal_text = f"Running together: {progress_counts['focal']}/{total_universes} universes"
-        counterfactual_text = f"Running together: {progress_counts['counterfactual']}/{total_universes} universes"
+        focal_text = f"Running together: Universe {progress_counts['focal']}/{total_universes}"
+        counterfactual_text = f"Running together: Universe {progress_counts['counterfactual']}/{total_universes}"
     elif focal_completed_counterfactual_running:
-        focal_text = f"Completed (reused): {progress_counts['focal']}/{total_universes} universes"
-        counterfactual_text = f"Running: {progress_counts['counterfactual']}/{total_universes} universes"
+        focal_text = f"Completed (reused): Universe {progress_counts['focal']}/{total_universes}"
+        counterfactual_text = f"Running: Universe {progress_counts['counterfactual']}/{total_universes}"
     else:
-        focal_text = f"{progress_counts['focal']}/{total_universes} universes"
-        counterfactual_text = f"{progress_counts['counterfactual']}/{total_universes} universes"
+        focal_text = f"Universe {progress_counts['focal']}/{total_universes}"
+        counterfactual_text = f"Universe {progress_counts['counterfactual']}/{total_universes}"
     
     return focal_bar_style, focal_text, counterfactual_bar_style, counterfactual_text
 
@@ -2850,6 +3060,11 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
             # If submit button was clicked, run the multiverse analysis
             elif trigger_id == 'submit-profiles-button':
                 print("Submit button clicked - checking profile characteristics...")
+                print(f"Focal profile params: age={age_1}, gender={gender_1}, race={race_1}")
+                print(f"Counterfactual profile params: age={age_2}, gender={gender_2}, race={race_2}")
+                print(f"Focal profile has been run: {focal_profile_has_been_run}")
+                print(f"Last focal profile params: {last_focal_profile_params}")
+                print(f"Current df_nc empty: {df_nc.empty}")
                 
                 # Check if profiles are identical
                 profiles_identical = profiles_are_identical(age_1, gender_1, race_1, age_2, gender_2, race_2)
@@ -2873,17 +3088,25 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
                     
                     # Check if focal profile has been run with the same parameters
                     current_focal_params = (age_1, gender_1, race_1)
-                    focal_profile_params = (age_1 == 25 and gender_1 == "male" and race_1 == "caucasian")
                     
                     if (focal_profile_has_been_run and not df_nc.empty and 
-                        (focal_profile_params or current_focal_params == last_focal_profile_params)):
-                        print("Focal profile already run - reusing results, running only counterfactual analysis...")
+                        last_focal_profile_params is not None and
+                        current_focal_params == last_focal_profile_params):
+                        print(f"Focal profile already run with same params {current_focal_params} - reusing results!")
+                        print("Running only counterfactual analysis...")
                         # Set focal progress to completed since we're reusing results
                         progress_counts["focal"] = total_universes
+                        progress_updates["focal"] = []  # Clear previous progress
                         progress_updates["focal"].append("Focal profile results reused from previous analysis")
+                        progress_updates["focal"].append(f"Universe {total_universes}/{total_universes}")
+                        
+                        # Reset counterfactual progress before running
+                        progress_counts["counterfactual"] = 0
+                        progress_updates["counterfactual"] = []
                         
                         # Reuse existing focal results, only run counterfactual
-                        counterfactual_results = run_multiverse_analysis_with_profile(age_2, gender_2, race_2)
+                        # Pass is_shared_analysis=False explicitly to ensure only counterfactual updates
+                        counterfactual_results = run_multiverse_analysis_with_profile(age_2, gender_2, race_2, is_shared_analysis=False)
                         
                         if counterfactual_results is not None:
                             df_low_risk = counterfactual_results
@@ -2891,6 +3114,7 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
                         else:
                             print("Counterfactual analysis failed!")
                     else:
+                        print(f"Focal profile needs to be run (has_been_run={focal_profile_has_been_run}, df_empty={df_nc.empty}, params_match={current_focal_params == last_focal_profile_params})")
                         print("Running sequential multiverse analysis...")
                         # Run analyses sequentially with proper progress tracking
                         focal_results = run_multiverse_analysis_with_profile(age_1, gender_1, race_1)
