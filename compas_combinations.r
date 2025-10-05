@@ -58,8 +58,8 @@ generate_compas_garden <- function(data, collect_data_parameters, time_partition
     
     num_universes <- nrow(all_universes)
     
-    # Define universes_part1 here, inside the function
-    universes_part1 <- all_universes[1600:1620, ]  # Test with first 50 universes
+    # Use all universes instead of a subset
+    universes_part1 <- all_universes  # Run all combinations
     num_universes_part1 <- nrow(universes_part1)
 
     # --- 3. LOOP THROUGH EACH UNIVERSE ---
@@ -252,6 +252,38 @@ generate_compas_garden <- function(data, collect_data_parameters, time_partition
                 # Set both train and test to have the same levels
                 train[[var]] <- factor(train[[var]], levels = all_levels)
                 test[[var]] <- factor(test[[var]], levels = all_levels)
+            }
+        }
+        
+        # CRITICAL FIX: Also ensure ALL categorical variables have consistent factor levels
+        # This prevents "new levels" errors during prediction
+        critical_factor_vars <- c("r_charge_degree", "c_charge_degree", "sex", "race", "age_cat", 
+                                 "crime_factor", "score_factor", "compas_age", "nc_race", "nij_race", "nij_age")
+        
+        for (var in critical_factor_vars) {
+            if (var %in% names(train) && var %in% names(test)) {
+                if (is.factor(train[[var]]) && is.factor(test[[var]])) {
+                    # Get all unique levels from both train and test
+                    all_levels <- unique(c(levels(train[[var]]), levels(test[[var]])))
+                    
+                    # Set both train and test to have the same levels
+                    train[[var]] <- factor(train[[var]], levels = all_levels)
+                    test[[var]] <- factor(test[[var]], levels = all_levels)
+                    
+                    cat("        DEBUG: Aligned factor levels for", var, "- Train levels:", length(levels(train[[var]])), 
+                        ", Test levels:", length(levels(test[[var]])), "\n")
+                    cat("        DEBUG: Train levels for", var, ":", paste(levels(train[[var]]), collapse=", "), "\n")
+                    cat("        DEBUG: Test levels for", var, ":", paste(levels(test[[var]]), collapse=", "), "\n")
+                }
+            }
+        }
+        
+        # CRITICAL: Store the aligned factor levels for later use in model evaluation
+        # This ensures the same factor structure is used throughout
+        train_factor_levels <- list()
+        for (var in critical_factor_vars) {
+            if (var %in% names(train) && is.factor(train[[var]])) {
+                train_factor_levels[[var]] <- levels(train[[var]])
             }
         }
 
@@ -485,6 +517,7 @@ generate_compas_garden <- function(data, collect_data_parameters, time_partition
                 }
             } else {
                 result_prob <- NA 
+                cat("        WARNING: Cox model failed to fit - setting result_prob to NA\n")
             }
             
         # --- Logistic Model ---
@@ -504,6 +537,9 @@ generate_compas_garden <- function(data, collect_data_parameters, time_partition
                  if (grepl("fitted probabilities numerically 0 or 1 occurred", conditionMessage(e))) {
                      cat("        ERROR: Complete separation in GLM detected. Skipping prediction.\n")
                      return(NULL)
+                 } else if (grepl("contrasts can be applied only to factors with 2 or more levels", conditionMessage(e))) {
+                     cat("        ERROR: Factor became constant during model fitting. Skipping prediction.\n")
+                     return(NULL)
                  } else {
                      stop(e) 
                  }
@@ -513,6 +549,7 @@ generate_compas_garden <- function(data, collect_data_parameters, time_partition
                 result_prob <- predict(logistic_model, newdata = high_risk_df, type = "response")[1]
             } else {
                  result_prob <- NA
+                 cat("        WARNING: Logistic model failed to fit - setting result_prob to NA\n")
             }
 
         # --- XGBoost Model ---
@@ -645,39 +682,96 @@ generate_compas_garden <- function(data, collect_data_parameters, time_partition
         accuracy_result <- NA
         auc_result <- NA
         
-        if (!is.na(result_prob)) {
-            cat("    Evaluating model on test set...\n")
+        # Always try to evaluate if we have a valid model, even if result_prob is NA
+        cat("    Evaluating model on test set...\n")
+        
+        # Check if we have a valid model to evaluate
+        has_valid_model <- FALSE
+        if (universe$model == "survival" && exists("cox_model") && !is.null(cox_model)) {
+            has_valid_model <- TRUE
+            cat("        DEBUG: Cox model is valid for evaluation\n")
+        } else if (universe$model == "logistic" && exists("logistic_model") && !is.null(logistic_model)) {
+            has_valid_model <- TRUE
+            cat("        DEBUG: Logistic model is valid for evaluation\n")
+        } else if (universe$model == "xg_boost" && exists("xgboost_model") && !is.null(xgboost_model)) {
+            has_valid_model <- TRUE
+            cat("        DEBUG: XGBoost model is valid for evaluation\n")
+        }
+        
+        if (!has_valid_model) {
+            cat("        WARNING: No valid model found for evaluation. Setting accuracy and AUC to NA.\n")
+            cat("        DEBUG: Model type:", universe$model, "\n")
+            cat("        DEBUG: Cox model exists:", exists("cox_model") && !is.null(cox_model), "\n")
+            cat("        DEBUG: Logistic model exists:", exists("logistic_model") && !is.null(logistic_model), "\n")
+            cat("        DEBUG: XGBoost model exists:", exists("xgboost_model") && !is.null(xgboost_model), "\n")
+            accuracy_result <- NA
+            auc_result <- NA
+        } else {
+        
+        # Apply the same preprocessing to test set
+        test_processed <- test
+        
+        # Apply the same factor level synchronization
+        if (length(lasso_base_vars) > 0) {
+            test_processed <- droplevels(test_processed)
             
-            # Apply the same preprocessing to test set
-            test_processed <- test
-            
-            # Apply the same factor level synchronization
-            if (length(lasso_base_vars) > 0) {
-                test_processed <- droplevels(test_processed)
-                
-                # Update gender_factor in test set if it was removed due to "only" filtering
-                if (universe$gender_imbalancing %in% c("male only", "female only")) {
-                    test_processed$gender_factor <- droplevels(test_processed$gender_factor, exclude = if (universe$gender_imbalancing == "male only") {"Female"} else {"Male"})
-                }
-                
-                # Factor levels should already be aligned from earlier processing
+            # Update gender_factor in test set if it was removed due to "only" filtering
+            if (universe$gender_imbalancing %in% c("male only", "female only")) {
+                test_processed$gender_factor <- droplevels(test_processed$gender_factor, exclude = if (universe$gender_imbalancing == "male only") {"Female"} else {"Male"})
             }
             
-            # Get the final predictor variables used in the model
-            final_predictor_vars <- unlist(strsplit(current_predictor_string, " \\+ "))
-            
-            # Debug: Check test set size after factor alignment
-            cat(paste0("        DEBUG: Test set size after factor alignment: ", nrow(test_processed), "\n"))
-            
-            if (nrow(test_processed) == 0) {
-                cat("        WARNING: Test set is empty after factor alignment. Skipping evaluation.\n")
-                accuracy_result <- NA
-                auc_result <- NA
+            # CRITICAL: Re-align factor levels between train and test for ALL categorical variables
+            # This prevents "new levels" errors during model evaluation
+            # Use the stored factor levels from training to ensure consistency
+            if (exists("train_factor_levels")) {
+                for (var in names(train_factor_levels)) {
+                    if (var %in% names(test_processed) && is.factor(test_processed[[var]])) {
+                        # Use the exact same factor levels that were used during training
+                        test_processed[[var]] <- factor(test_processed[[var]], levels = train_factor_levels[[var]])
+                        cat("        DEBUG: Re-aligned", var, "to match training factor levels\n")
+                        cat("        DEBUG: Test", var, "levels after re-alignment:", paste(levels(test_processed[[var]]), collapse=", "), "\n")
+                    }
+                }
             } else {
-                if (universe$model == "survival") {
+                # Fallback: use the original method if train_factor_levels doesn't exist
+                critical_factor_vars <- c("r_charge_degree", "c_charge_degree", "sex", "race", "age_cat", 
+                                         "crime_factor", "score_factor", "compas_age", "nc_race", "nij_race", "nij_age")
+                
+                for (var in critical_factor_vars) {
+                    if (var %in% names(train) && var %in% names(test_processed)) {
+                        if (is.factor(train[[var]]) && is.factor(test_processed[[var]])) {
+                            # Get all unique levels from both train and test
+                            all_levels <- unique(c(levels(train[[var]]), levels(test_processed[[var]])))
+                            
+                            # Set both train and test to have the same levels
+                            train[[var]] <- factor(train[[var]], levels = all_levels)
+                            test_processed[[var]] <- factor(test_processed[[var]], levels = all_levels)
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Get the final predictor variables used in the model
+        final_predictor_vars <- unlist(strsplit(current_predictor_string, " \\+ "))
+        
+        # Debug: Check test set size after factor alignment
+        cat(paste0("        DEBUG: Test set size after factor alignment: ", nrow(test_processed), "\n"))
+        
+        if (nrow(test_processed) == 0) {
+            cat("        WARNING: Test set is empty after factor alignment. Skipping evaluation.\n")
+            accuracy_result <- NA
+            auc_result <- NA
+        } else {
+            if (universe$model == "survival") {
                 # For survival models, we need to predict survival probability
                 if (!is.null(cox_model)) {
                     tryCatch({
+                        # DEBUG: Check factor levels before prediction
+                        cat("        DEBUG: About to predict with cox_model on test_processed\n")
+                        cat("        DEBUG: Test set r_charge_degree levels:", paste(levels(test_processed$r_charge_degree), collapse=", "), "\n")
+                        cat("        DEBUG: Test set r_charge_degree unique values:", paste(unique(test_processed$r_charge_degree), collapse=", "), "\n")
+                        
                         # Predict survival probability at 730 days (2 years)
                         surv_pred_test <- survfit(cox_model, newdata = test_processed)
                         surv_summary_test <- summary(surv_pred_test, times = 730)
@@ -732,6 +826,13 @@ generate_compas_garden <- function(data, collect_data_parameters, time_partition
                         
                     }, error = function(e) {
                         cat("        Error in survival model evaluation:", conditionMessage(e), "\n")
+                        cat("        DEBUG: Cox model exists:", !is.null(cox_model), "\n")
+                        cat("        DEBUG: Test set size:", nrow(test_processed), "\n")
+                        if (grepl("new levels", conditionMessage(e))) {
+                            cat("        FATAL: Factor level mismatch detected - this should be fixed now\n")
+                        }
+                        accuracy_result <<- NA
+                        auc_result <<- NA
                     })
                 }
                 
@@ -758,6 +859,10 @@ generate_compas_garden <- function(data, collect_data_parameters, time_partition
                         
                     }, error = function(e) {
                         cat("        Error in logistic model evaluation:", conditionMessage(e), "\n")
+                        cat("        DEBUG: Logistic model exists:", !is.null(logistic_model), "\n")
+                        cat("        DEBUG: Test set size:", nrow(test_processed), "\n")
+                        accuracy_result <<- NA
+                        auc_result <<- NA
                     })
                 }
                 
@@ -831,10 +936,10 @@ generate_compas_garden <- function(data, collect_data_parameters, time_partition
                     })
                 }
             }
-            } # Close the else block for test_processed check
-            
-            cat("        Test Accuracy:", round(accuracy_result, 4), "| AUC:", round(auc_result, 4), "\n")
-        }
+        } # Close the else block for test_processed check
+        } # Close the else block for has_valid_model check
+        
+        cat("        Test Accuracy:", round(accuracy_result, 4), "| AUC:", round(auc_result, 4), "\n")
         
         cat(" Recidivism Probability:", result_prob, "\n")
         

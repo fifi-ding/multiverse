@@ -317,6 +317,7 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
                 analysis_data = robjects.globalenv['analysis_1978']
             
             print(f"Running {profile_name} analysis: Age={profile_age}, Gender={profile_gender}, Race={profile_race}")
+            print(f"DEBUG: About to call R functions with profile parameters: age={profile_age}, gender='{profile_gender}', race='{profile_race}'")
             
             # Start progress monitoring in a separate thread
             def monitor_progress():
@@ -355,10 +356,10 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
                                         
                                         # Update progress text every 100 universes
                                         if universe_num % 100 == 0:
-                                            progress_updates[profile_key].append(f"Processing Universe {universe_num}/{total_universes}...")
+                                            progress_updates[profile_key].append(f"Processing Universe {universe_num}/{total_universes} (sampled from 9600 total)...")
                                             if is_shared_analysis:
                                                 other_profile_name = "Counterfactual" if profile_name == "Focal" else "Focal"
-                                                progress_updates[other_profile_key].append(f"Processing Universe {universe_num}/{total_universes}...")
+                                                progress_updates[other_profile_key].append(f"Processing Universe {universe_num}/{total_universes} (sampled from 9600 total)...")
                                         
                                         # Check if analysis is complete
                                         if universe_num >= total_universes:
@@ -397,14 +398,15 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
                 import traceback
                 traceback.print_exc()
                 raise
-            progress_counts[profile_key] = 3000
+            # Update progress to 1/3 completion (500 out of 1500)
+            progress_counts[profile_key] = total_universes // 3
             if is_shared_analysis:
-                progress_counts[other_profile_key] = 3000
+                progress_counts[other_profile_key] = total_universes // 3
             
-            # Run Part 2: universes 3001-6000
-            progress_updates[profile_key].append(f"Running Part 2 (universes 3001-6000)...")
+            # Run Part 2: universes 501-1000
+            progress_updates[profile_key].append(f"Running Part 2 (universes 501-1000)...")
             if is_shared_analysis:
-                progress_updates[other_profile_key].append(f"Running Part 2 (universes 3001-6000)...")
+                progress_updates[other_profile_key].append(f"Running Part 2 (universes 501-1000)...")
             
             print(f"Calling R function Part 2 with profile: age={profile_age}, gender={profile_gender}, race={profile_race}")
             try:
@@ -420,14 +422,15 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
                 import traceback
                 traceback.print_exc()
                 raise
-            progress_counts[profile_key] = 6000
+            # Update progress to 2/3 completion (1000 out of 1500)
+            progress_counts[profile_key] = (total_universes * 2) // 3
             if is_shared_analysis:
-                progress_counts[other_profile_key] = 6000
+                progress_counts[other_profile_key] = (total_universes * 2) // 3
             
-            # Run Part 3: universes 6001-9600
-            progress_updates[profile_key].append(f"Running Part 3 (universes 6001-9600)...")
+            # Run Part 3: universes 1001-1500
+            progress_updates[profile_key].append(f"Running Part 3 (universes 1001-1500)...")
             if is_shared_analysis:
-                progress_updates[other_profile_key].append(f"Running Part 3 (universes 6001-9600)...")
+                progress_updates[other_profile_key].append(f"Running Part 3 (universes 1001-1500)...")
             
             print(f"Calling R function Part 3 with profile: age={profile_age}, gender={profile_gender}, race={profile_race}")
             try:
@@ -466,16 +469,16 @@ def run_multiverse_analysis_with_profile(profile_age, profile_gender, profile_ra
             print(f"After type conversion - Scaling unique values: {results_df['scaling'].unique()}")
             
             # Finalize progress
-            progress_counts[profile_key] = 9600
-            progress_updates[profile_key].append(f"Completed: Generated all {len(results_df)} universes")
+            progress_counts[profile_key] = total_universes
+            progress_updates[profile_key].append(f"Completed: Generated all {len(results_df)} universes (sampled from 9600 total)")
             progress_updates[profile_key].append(f"{profile_name} analysis completed!")
             
             # If shared analysis, finalize both profiles
             if is_shared_analysis:
                 other_profile_key = "counterfactual" if profile_key == "focal" else "focal"
                 other_profile_name = "Counterfactual" if profile_name == "Focal" else "Focal"
-                progress_counts[other_profile_key] = 9600
-                progress_updates[other_profile_key].append(f"Completed: Generated all {len(results_df)} universes")
+                progress_counts[other_profile_key] = total_universes
+                progress_updates[other_profile_key].append(f"Completed: Generated all {len(results_df)} universes (sampled from 9600 total)")
                 progress_updates[other_profile_key].append(f"{other_profile_name} analysis completed!")
             
             # Clean up progress file
@@ -732,7 +735,7 @@ def create_layout():
                                     'transition': 'width 0.3s ease'
                                 }
                             ),
-                            html.P(id='focal-progress-text', children="Universe 0/9600", 
+                            html.P(id='focal-progress-text', children="Universe 0/1500 (sampled)", 
                                    style={'fontSize': '10px', 'color': '#666', 'marginTop': '2px'})
                         ], style={'marginBottom': '10px'}),
                         
@@ -748,7 +751,7 @@ def create_layout():
                                     'transition': 'width 0.3s ease'
                                 }
                             ),
-                            html.P(id='counterfactual-progress-text', children="Universe 0/9600", 
+                            html.P(id='counterfactual-progress-text', children="Universe 0/1500 (sampled)", 
                                    style={'fontSize': '10px', 'color': '#666', 'marginTop': '2px'})
                         ], style={'marginBottom': '10px'}),
                         
@@ -2068,6 +2071,28 @@ def identify_regions(selected_indices, df_sorted):
     
     return regions
 
+def calculate_average_accuracy(selected_universes, df_sorted):
+    """Calculate average accuracy for selected universes"""
+    if not selected_universes or df_sorted.empty or 'accuracy' not in df_sorted.columns:
+        return None
+    
+    try:
+        # Get accuracy values for selected universes
+        accuracies = []
+        for idx in selected_universes:
+            if idx < len(df_sorted):
+                accuracy_val = df_sorted.iloc[idx]['accuracy']
+                if pd.notna(accuracy_val):  # Check if accuracy is not NaN
+                    accuracies.append(accuracy_val)
+        
+        if accuracies:
+            return round(sum(accuracies) / len(accuracies), 3)
+        else:
+            return None
+    except Exception as e:
+        print(f"Error calculating average accuracy: {e}")
+        return None
+
 def get_combined_regional_variable_importance_display(df, profile, profile_num, selected_universes=None):
     """Generate variable importance display treating all selected regions as one combined batch"""
     # Check if dataframe is empty
@@ -2911,7 +2936,8 @@ def clear_selections(clear_all_clicks, clear_focal_clicks, clear_cf_clicks):
 # Global variables to store progress updates
 progress_updates = {"focal": [], "counterfactual": []}
 progress_counts = {"focal": 0, "counterfactual": 0}
-total_universes = 9600
+total_universes = 1500  # Updated to reflect sampling: 500 universes per part × 3 parts
+                     # (randomly sampled from 9600 total possible combinations for faster computation)
 
 # Global variable to track if focal profile has been run
 focal_profile_has_been_run = False
@@ -2993,14 +3019,14 @@ def update_progress_bars(n_intervals):
     
     # Update text based on analysis status
     if profiles_running_together:
-        focal_text = f"Running together: Universe {progress_counts['focal']}/{total_universes}"
-        counterfactual_text = f"Running together: Universe {progress_counts['counterfactual']}/{total_universes}"
+        focal_text = f"Running together: Universe {progress_counts['focal']}/{total_universes} (sampled)"
+        counterfactual_text = f"Running together: Universe {progress_counts['counterfactual']}/{total_universes} (sampled)"
     elif focal_completed_counterfactual_running:
-        focal_text = f"Completed (reused): Universe {progress_counts['focal']}/{total_universes}"
-        counterfactual_text = f"Running: Universe {progress_counts['counterfactual']}/{total_universes}"
+        focal_text = f"Completed (reused): Universe {progress_counts['focal']}/{total_universes} (sampled)"
+        counterfactual_text = f"Running: Universe {progress_counts['counterfactual']}/{total_universes} (sampled)"
     else:
-        focal_text = f"Universe {progress_counts['focal']}/{total_universes}"
-        counterfactual_text = f"Universe {progress_counts['counterfactual']}/{total_universes}"
+        focal_text = f"Universe {progress_counts['focal']}/{total_universes} (sampled)"
+        counterfactual_text = f"Universe {progress_counts['counterfactual']}/{total_universes} (sampled)"
     
     return focal_bar_style, focal_text, counterfactual_bar_style, counterfactual_text
 
@@ -3098,7 +3124,7 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
                         progress_counts["focal"] = total_universes
                         progress_updates["focal"] = []  # Clear previous progress
                         progress_updates["focal"].append("Focal profile results reused from previous analysis")
-                        progress_updates["focal"].append(f"Universe {total_universes}/{total_universes}")
+                        progress_updates["focal"].append(f"Universe {total_universes}/{total_universes} (sampled)")
                         
                         # Reset counterfactual progress before running
                         progress_counts["counterfactual"] = 0
@@ -3427,8 +3453,10 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
                 df_sorted = df_nc.sort_values('recidivism_prob')
                 focal_regions = identify_regions(selected_1, df_sorted)
                 region_info = f" ({len(focal_regions)} region{'s' if len(focal_regions) > 1 else ''})" if len(focal_regions) > 1 else ""
+                focal_avg_accuracy = calculate_average_accuracy(selected_1, df_sorted)
             else:
                 region_info = ""
+                focal_avg_accuracy = None
             
             # Get region count for focal profile
             if not df_nc.empty:
@@ -3438,17 +3466,28 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
             else:
                 focal_region_count = 1
             
-            # Get region count for counterfactual profile
+            # Get region count and accuracy for counterfactual profile
             if not df_low_risk.empty:
                 df_sorted_cf = df_low_risk.sort_values('recidivism_prob')
                 cf_regions = identify_regions(selected_2, df_sorted_cf)
                 cf_region_count = len(cf_regions)
+                cf_avg_accuracy = calculate_average_accuracy(selected_2, df_sorted_cf)
             else:
                 cf_region_count = 1
+                cf_avg_accuracy = None
+            
+            # Create accuracy info text
+            accuracy_info = []
+            if focal_avg_accuracy is not None:
+                accuracy_info.append(f"Focal avg accuracy: {focal_avg_accuracy}")
+            if cf_avg_accuracy is not None:
+                accuracy_info.append(f"CF avg accuracy: {cf_avg_accuracy}")
+            
+            accuracy_text = f" | {' | '.join(accuracy_info)}" if accuracy_info else ""
             
             selection_status = html.Div([
                 html.Span("", style={'fontSize': '14px'}),
-                html.Span(f"Combined Selection Active: {focal_count} Focal ({focal_region_count} region{'s' if focal_region_count > 1 else ''}) + {cf_count} CF ({cf_region_count} region{'s' if cf_region_count > 1 else ''})", 
+                html.Span(f"Combined Selection Active: {focal_count} Focal ({focal_region_count} region{'s' if focal_region_count > 1 else ''}) + {cf_count} CF ({cf_region_count} region{'s' if cf_region_count > 1 else ''}){accuracy_text}", 
                          style={'fontWeight': 'bold', 'color': '#28a745'})
             ])
         elif has_focal_selection:
@@ -3459,8 +3498,10 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
                 df_sorted = df_nc.sort_values('recidivism_prob')
                 focal_regions = identify_regions(selected_1, df_sorted)
                 region_info = f" ({len(focal_regions)} region{'s' if len(focal_regions) > 1 else ''})" if len(focal_regions) > 1 else ""
+                focal_avg_accuracy = calculate_average_accuracy(selected_1, df_sorted)
             else:
                 region_info = ""
+                focal_avg_accuracy = None
             
             # Get region count for more detailed info
             if not df_nc.empty:
@@ -3470,9 +3511,12 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
             else:
                 region_count = 1
             
+            # Create accuracy info text
+            accuracy_text = f" | Avg accuracy: {focal_avg_accuracy}" if focal_avg_accuracy is not None else ""
+            
             selection_status = html.Div([
                 html.Span("", style={'fontSize': '14px'}),
-                html.Span(f"Focal Selection Active: {focal_count} universes in {region_count} region{'s' if region_count > 1 else ''}", 
+                html.Span(f"Focal Selection Active: {focal_count} universes in {region_count} region{'s' if region_count > 1 else ''}{accuracy_text}", 
                          style={'fontWeight': 'bold', 'color': '#d63384'})
             ])
         elif has_cf_selection:
@@ -3483,12 +3527,17 @@ def update_dashboard(submit_clicks, selected_1, selected_2, highlighted_1, highl
                 df_sorted = df_low_risk.sort_values('recidivism_prob')
                 cf_regions = identify_regions(selected_2, df_sorted)
                 cf_region_count = len(cf_regions)
+                cf_avg_accuracy = calculate_average_accuracy(selected_2, df_sorted)
             else:
                 cf_region_count = 1
+                cf_avg_accuracy = None
+            
+            # Create accuracy info text
+            accuracy_text = f" | Avg accuracy: {cf_avg_accuracy}" if cf_avg_accuracy is not None else ""
             
             selection_status = html.Div([
                 html.Span("", style={'fontSize': '14px'}),
-                html.Span(f"Counterfactual Selection Active: {cf_count} universes in {cf_region_count} region{'s' if cf_region_count > 1 else ''}", 
+                html.Span(f"Counterfactual Selection Active: {cf_count} universes in {cf_region_count} region{'s' if cf_region_count > 1 else ''}{accuracy_text}", 
                          style={'fontWeight': 'bold', 'color': '#0d6efd'})
             ])
         else:

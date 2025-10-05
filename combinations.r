@@ -1,8 +1,21 @@
 library(dplyr)
 library(survival)
+library(ROCR)
+
+# =============================================================================
+# NC Multiverse Analysis with Reduced Universe Sampling
+# =============================================================================
+# This script performs multiverse analysis on NC prisoner data with the following features:
+# - Randomly samples 500 universes from each part (Part 1: 1-3000, Part 2: 3001-6000, Part 3: 6001-9600)
+# - Total of 1,500 universes processed instead of 9,600 (83% reduction for faster computation)
+# - Calculates recidivism probability, accuracy, and AUC for each universe
+# - Uses reproducible random sampling with different seeds for each part
+# - Configurable universe count via max_universes_per_part parameter (default: 500)
+# - Progress tracking shows sampling information for transparency
+# =============================================================================
 
 # ======== NC Combinations =======
-generate_nc_garden <- function(data, scaling_parameters, convert_followup_parameters, age_category_parameters, split_parameters, imbalancing_parameters, model_parameters, predictor_parameters, define_recid_parameters, profile_age = 25, profile_gender = "male", profile_race = "caucasian") {
+generate_nc_garden <- function(data, scaling_parameters, convert_followup_parameters, age_category_parameters, split_parameters, imbalancing_parameters, model_parameters, predictor_parameters, define_recid_parameters, profile_age = 25, profile_gender = "male", profile_race = "caucasian", max_universes_per_part = 500) {
   
   # each row in the resulting data frame will be a unique "universe."
   all_universes <- expand.grid(
@@ -18,6 +31,7 @@ generate_nc_garden <- function(data, scaling_parameters, convert_followup_parame
   )
   
   # Profile base - use parameters passed from Python
+  cat("DEBUG Part 1: Profile parameters received - age:", profile_age, "gender:", profile_gender, "race:", profile_race, "\n")
   high_risk_base <- list(
     AGE = profile_age * 12, # Convert years to months
     TSERVD = 100,
@@ -35,18 +49,37 @@ generate_nc_garden <- function(data, scaling_parameters, convert_followup_parame
     PERSON = 0,
     SUPER = 1
   )
+  cat("DEBUG Part 1: High risk base created - AGE:", high_risk_base$AGE, "MALE:", high_risk_base$MALE, "WHITE:", high_risk_base$WHITE, "\n")
   
   # initialize a new column to store the results.
   all_universes$recidivism_prob <- NA
-  #num_universes <- nrow(all_universes)
-  universes_part1 <- all_universes[1:3000, ]
+  all_universes$accuracy <- NA
+  all_universes$auc <- NA
+  
+  # Randomly sample universes from Part 1 (indices 1-3000)
+  set.seed(42)  # For reproducibility
+  part1_indices <- sample(1:3000, size = min(max_universes_per_part, 3000), replace = FALSE)
+  universes_part1 <- all_universes[part1_indices, ]
   num_universes_part1 <- nrow(universes_part1)
+  
+  # Write initial progress message
+  progress_file <- "progress_nc_garden.txt"
+  total_possible <- nrow(all_universes)
+  total_sampled <- max_universes_per_part * 3
+  write(paste("Starting analysis: Sampling", total_sampled, "universes from", total_possible, "total possible combinations"), file = progress_file, append = FALSE)
+  cat("Starting analysis: Sampling", total_sampled, "universes from", total_possible, "total possible combinations\n")
   
   # Loop through each universe and perform the analysis
   for (i in 1:num_universes_part1) {
     
     # Extract the current universe's procedural choices
     universe <- universes_part1[i, ]
+    
+    # Check if we've reached the end of valid universes
+    if (is.na(universe$scaling)) {
+      cat("\n--- Stopping Loop: Reached end of generated universes. ---\n")
+      break
+    }
     
     # Print a header for the current universe to track progress
     cat("\n--- Running Universe", i, "of", num_universes_part1, "---\n")
@@ -62,8 +95,9 @@ generate_nc_garden <- function(data, scaling_parameters, convert_followup_parame
     # Progress update every 25 universes - write to file for Python to read
     if (i %% 25 == 0 || i == num_universes_part1) {
       progress_file <- "progress_nc_garden.txt"
-      write(paste("Universe", i, "of", 9600, "completed"), file = progress_file, append = FALSE)
-      cat("PROGRESS_UPDATE: Universe", i, "of", 9600, "completed\n")
+      total_universes <- max_universes_per_part * 3  # Part1 + Part2 + Part3
+      write(paste("Universe", i, "of", total_universes, "completed (sampled from", nrow(all_universes), "total universes)"), file = progress_file, append = FALSE)
+      cat("PROGRESS_UPDATE: Universe", i, "of", total_universes, "completed (sampled from", nrow(all_universes), "total universes)\n")
     }
     
     current_data <- data
@@ -290,10 +324,18 @@ generate_nc_garden <- function(data, scaling_parameters, convert_followup_parame
     
     # =============  MODEL ==============
     # After filtering, check for and remove constant variables
-    constant_vars <- sapply(analysis_1978[, model_vars], function(x) length(unique(x[!is.na(x)])) <= 1)
-    model_vars <- model_vars[!constant_vars]
+    if (length(model_vars) > 0) {
+      constant_vars <- sapply(analysis_1978[, model_vars, drop = FALSE], function(x) length(unique(x[!is.na(x)])) <= 1)
+      model_vars <- model_vars[!constant_vars]
+    }
+    
     # Rebuild the predictor string from the corrected model_vars
     predictor_string <- paste(model_vars, collapse = " + ")
+    
+    # Ensure we have at least one predictor
+    if (nchar(trimws(predictor_string)) == 0 || length(model_vars) == 0) {
+      predictor_string <- "1" # Intercept-only model
+    }
     
     #if (universe$imbalancing == "female only" || universe$imbalancing == "male only") {
       # Remove the 'MALE' predictor from the string
@@ -368,9 +410,157 @@ generate_nc_garden <- function(data, scaling_parameters, convert_followup_parame
       # Predict the recidivism probability for the high-risk profile
       result_prob <- predict(logistic_model, newdata = high_risk, type = "response")
     }
+    
+    # ================= Model Evaluation on Test Set =================
+    accuracy_result <- NA
+    auc_result <- NA
+    
+    if (!is.na(result_prob)) {
+      cat("     Evaluating model on test set...\n")
+      
+      # Apply the same preprocessing to test set
+      test_processed <- validation_1978
+      
+      # Apply the same factor level synchronization
+      if (length(model_vars) > 0) {
+        test_processed <- droplevels(test_processed)
+        
+        # Update gender_factor in test set if it was removed due to "only" filtering
+        if (universe$imbalancing %in% c("male only", "female only")) {
+          test_processed$MALE <- droplevels(as.factor(test_processed$MALE), exclude = if (universe$imbalancing == "male only") {0} else {1})
+        }
+      }
+      
+      # Debug: Check test set size after factor alignment
+      cat(paste0("     DEBUG: Test set size after factor alignment: ", nrow(test_processed), "\n"))
+      
+      if (nrow(test_processed) == 0) {
+        cat("     WARNING: Test set is empty after factor alignment. Skipping evaluation.\n")
+        accuracy_result <- NA
+        auc_result <- NA
+      } else {
+        if (universe$model == "survival") {
+          # For survival models, we need to predict survival probability
+          if (exists("cox_model") && !is.null(cox_model)) {
+            tryCatch({
+              # Predict survival probability at the time point
+              surv_pred_test <- survfit(cox_model, newdata = test_processed)
+              
+              # Calculate recidivism probability for each test case
+              time_point <- case_when(
+                universe$define_recid == "1yr" ~ 12,
+                universe$define_recid == "2yr" ~ 24,
+                universe$define_recid == "3yr" ~ 36,
+                universe$define_recid == "4yr" ~ 48,
+                universe$define_recid == "5yr" ~ 60
+              )
+              
+              # Get survival probability at the time point
+              surv_summary_test <- summary(surv_pred_test, times = time_point)
+              
+              if (is.null(surv_summary_test$surv) || length(surv_summary_test$surv) == 0) {
+                # Fallback: get the last survival probability
+                last_surv <- summary(surv_pred_test)$surv
+                if (length(last_surv) > 0) {
+                  test_predictions <- rep(1 - last_surv[length(last_surv)], nrow(test_processed))
+                } else {
+                  test_predictions <- rep(NA, nrow(test_processed))
+                }
+              } else {
+                # Ensure we have the right number of predictions
+                n_test <- nrow(test_processed)
+                n_pred <- length(surv_summary_test$surv)
+                
+                if (n_pred == n_test) {
+                  test_predictions <- 1 - surv_summary_test$surv
+                } else if (n_pred == 1) {
+                  # Single prediction for all test cases
+                  test_predictions <- rep(1 - surv_summary_test$surv, n_test)
+                } else {
+                  # Mismatch - use the first prediction for all
+                  test_predictions <- rep(1 - surv_summary_test$surv[1], n_test)
+                }
+              }
+              
+              # Convert to binary predictions (threshold = 0.5)
+              binary_predictions <- ifelse(test_predictions > 0.5, 1, 0)
+              
+              # Get true labels based on recidivism definition
+              recidivism_response_var <- case_when(
+                universe$define_recid == "1yr" ~ "RECID_1",
+                universe$define_recid == "2yr" ~ "RECID_2",
+                universe$define_recid == "3yr" ~ "RECID_3",
+                universe$define_recid == "4yr" ~ "RECID_4",
+                universe$define_recid == "5yr" ~ "RECID_5"
+              )
+              true_labels <- test_processed[[recidivism_response_var]]
+              
+              # Ensure all vectors have the same length
+              min_length <- min(length(binary_predictions), length(true_labels))
+              binary_predictions <- binary_predictions[1:min_length]
+              true_labels <- true_labels[1:min_length]
+              test_predictions <- test_predictions[1:min_length]
+              
+              # Calculate accuracy
+              accuracy_result <- mean(binary_predictions == true_labels, na.rm = TRUE)
+              
+              # Calculate AUC
+              auc_result <- tryCatch({
+                roc_obj <- ROCR::prediction(test_predictions, true_labels)
+                ROCR::performance(roc_obj, "auc")@y.values[[1]]
+              }, error = function(e) NA)
+              
+            }, error = function(e) {
+              cat("     Error in survival model evaluation:", conditionMessage(e), "\n")
+            })
+          }
+          
+        } else if (universe$model == "logistic") {
+          # For logistic models
+          if (exists("logistic_model") && !is.null(logistic_model)) {
+            tryCatch({
+              test_predictions <- predict(logistic_model, newdata = test_processed, type = "response")
+              binary_predictions <- ifelse(test_predictions > 0.5, 1, 0)
+              
+              # Get true labels based on recidivism definition
+              recidivism_response_var <- case_when(
+                universe$define_recid == "1yr" ~ "RECID_1",
+                universe$define_recid == "2yr" ~ "RECID_2",
+                universe$define_recid == "3yr" ~ "RECID_3",
+                universe$define_recid == "4yr" ~ "RECID_4",
+                universe$define_recid == "5yr" ~ "RECID_5"
+              )
+              true_labels <- test_processed[[recidivism_response_var]]
+              
+              # Calculate accuracy
+              accuracy_result <- mean(binary_predictions == true_labels, na.rm = TRUE)
+              
+              # Calculate AUC
+              auc_result <- tryCatch({
+                roc_obj <- ROCR::prediction(test_predictions, true_labels)
+                ROCR::performance(roc_obj, "auc")@y.values[[1]]
+              }, error = function(e) NA)
+              
+            }, error = function(e) {
+              cat("     Error in logistic model evaluation:", conditionMessage(e), "\n")
+            })
+          }
+        }
+      }
+      
+      cat("     Test Accuracy:", round(accuracy_result, 4), "| AUC:", round(auc_result, 4), "\n")
+    }
+    
     cat(result_prob)
     universes_part1$recidivism_prob[i] <- result_prob
+    universes_part1$accuracy[i] <- accuracy_result
+    universes_part1$auc[i] <- auc_result
   }
+  
+  # Write completion message
+  write(paste("Part 1 completed: Processed", num_universes_part1, "of", total_sampled, "total sampled universes"), file = progress_file, append = TRUE)
+  cat("Part 1 completed: Processed", num_universes_part1, "of", total_sampled, "total sampled universes\n")
+  
   # Save the results of Part 1 to a file
   save(universes_part1, file = "results_part1.RData")
   
@@ -393,7 +583,7 @@ run_multiverse_analysis <- function(data, preprocessing_methods, split_methods, 
 }
 
 # ======== NC Combinations Part 2 =======
-generate_nc_garden_part2 <- function(data, scaling_parameters, convert_followup_parameters, age_category_parameters, split_parameters, imbalancing_parameters, model_parameters, predictor_parameters, define_recid_parameters, profile_age = 25, profile_gender = "male", profile_race = "caucasian") {
+generate_nc_garden_part2 <- function(data, scaling_parameters, convert_followup_parameters, age_category_parameters, split_parameters, imbalancing_parameters, model_parameters, predictor_parameters, define_recid_parameters, profile_age = 25, profile_gender = "male", profile_race = "caucasian", max_universes_per_part = 500) {
   
   # each row in the resulting data frame will be a unique "universe."
   all_universes <- expand.grid(
@@ -409,6 +599,7 @@ generate_nc_garden_part2 <- function(data, scaling_parameters, convert_followup_
   )
   
   # Profile base - use parameters passed from Python
+  cat("DEBUG Part 2: Profile parameters received - age:", profile_age, "gender:", profile_gender, "race:", profile_race, "\n")
   high_risk_base <- list(
     AGE = profile_age * 12, # Convert years to months
     TSERVD = 100,
@@ -426,10 +617,17 @@ generate_nc_garden_part2 <- function(data, scaling_parameters, convert_followup_
     PERSON = 0,
     SUPER = 1
   )
+  cat("DEBUG Part 2: High risk base created - AGE:", high_risk_base$AGE, "MALE:", high_risk_base$MALE, "WHITE:", high_risk_base$WHITE, "\n")
   
   # initialize a new column to store the results.
   all_universes$recidivism_prob <- NA
-  universes_part2 <- all_universes[3001:6000, ]
+  all_universes$accuracy <- NA
+  all_universes$auc <- NA
+  
+  # Randomly sample universes from Part 2 (indices 3001-6000)
+  set.seed(43)  # Different seed for Part 2
+  part2_indices <- sample(3001:6000, size = min(max_universes_per_part, 3000), replace = FALSE)
+  universes_part2 <- all_universes[part2_indices, ]
   num_universes_part2 <- nrow(universes_part2)
   
   # Loop through each universe and perform the analysis
@@ -452,8 +650,9 @@ generate_nc_garden_part2 <- function(data, scaling_parameters, convert_followup_
     # Progress update every 25 universes - write to file for Python to read
     if (i %% 25 == 0 || i == num_universes_part2) {
       progress_file <- "progress_nc_garden.txt"
-      write(paste("Universe", i + 3000, "of", 9600, "completed"), file = progress_file, append = FALSE)
-      cat("PROGRESS_UPDATE: Universe", i + 3000, "of", 9600, "completed\n")
+      total_universes <- max_universes_per_part * 3  # Part1 + Part2 + Part3
+      write(paste("Universe", i + max_universes_per_part, "of", total_universes, "completed (sampled from", nrow(all_universes), "total universes)"), file = progress_file, append = FALSE)
+      cat("PROGRESS_UPDATE: Universe", i + max_universes_per_part, "of", total_universes, "completed (sampled from", nrow(all_universes), "total universes)\n")
     }
     
     current_data <- data
@@ -673,11 +872,18 @@ generate_nc_garden_part2 <- function(data, scaling_parameters, convert_followup_
     }
     
     # After filtering, check for and remove constant variables
-    constant_vars <- sapply(analysis_1978[, model_vars], function(x) length(unique(x[!is.na(x)])) <= 1)
-    model_vars <- model_vars[!constant_vars]
+    if (length(model_vars) > 0) {
+      constant_vars <- sapply(analysis_1978[, model_vars, drop = FALSE], function(x) length(unique(x[!is.na(x)])) <= 1)
+      model_vars <- model_vars[!constant_vars]
+    }
     
     # Rebuild the predictor string from the corrected model_vars
     predictor_string <- paste(model_vars, collapse = " + ")
+    
+    # Ensure we have at least one predictor
+    if (nchar(trimws(predictor_string)) == 0 || length(model_vars) == 0) {
+      predictor_string <- "1" # Intercept-only model
+    }
     
     # =============  MODEL ==============
     if (universe$model == "survival") {
@@ -743,9 +949,157 @@ generate_nc_garden_part2 <- function(data, scaling_parameters, convert_followup_
       # Predict the recidivism probability for the high-risk profile
       result_prob <- predict(logistic_model, newdata = high_risk, type = "response")
     }
+    
+    # ================= Model Evaluation on Test Set =================
+    accuracy_result <- NA
+    auc_result <- NA
+    
+    if (!is.na(result_prob)) {
+      cat("     Evaluating model on test set...\n")
+      
+      # Apply the same preprocessing to test set
+      test_processed <- validation_1978
+      
+      # Apply the same factor level synchronization
+      if (length(model_vars) > 0) {
+        test_processed <- droplevels(test_processed)
+        
+        # Update gender_factor in test set if it was removed due to "only" filtering
+        if (universe$imbalancing %in% c("male only", "female only")) {
+          test_processed$MALE <- droplevels(as.factor(test_processed$MALE), exclude = if (universe$imbalancing == "male only") {0} else {1})
+        }
+      }
+      
+      # Debug: Check test set size after factor alignment
+      cat(paste0("     DEBUG: Test set size after factor alignment: ", nrow(test_processed), "\n"))
+      
+      if (nrow(test_processed) == 0) {
+        cat("     WARNING: Test set is empty after factor alignment. Skipping evaluation.\n")
+        accuracy_result <- NA
+        auc_result <- NA
+      } else {
+        if (universe$model == "survival") {
+          # For survival models, we need to predict survival probability
+          if (exists("cox_model") && !is.null(cox_model)) {
+            tryCatch({
+              # Predict survival probability at the time point
+              surv_pred_test <- survfit(cox_model, newdata = test_processed)
+              
+              # Calculate recidivism probability for each test case
+              time_point <- case_when(
+                universe$define_recid == "1yr" ~ 12,
+                universe$define_recid == "2yr" ~ 24,
+                universe$define_recid == "3yr" ~ 36,
+                universe$define_recid == "4yr" ~ 48,
+                universe$define_recid == "5yr" ~ 60
+              )
+              
+              # Get survival probability at the time point
+              surv_summary_test <- summary(surv_pred_test, times = time_point)
+              
+              if (is.null(surv_summary_test$surv) || length(surv_summary_test$surv) == 0) {
+                # Fallback: get the last survival probability
+                last_surv <- summary(surv_pred_test)$surv
+                if (length(last_surv) > 0) {
+                  test_predictions <- rep(1 - last_surv[length(last_surv)], nrow(test_processed))
+                } else {
+                  test_predictions <- rep(NA, nrow(test_processed))
+                }
+              } else {
+                # Ensure we have the right number of predictions
+                n_test <- nrow(test_processed)
+                n_pred <- length(surv_summary_test$surv)
+                
+                if (n_pred == n_test) {
+                  test_predictions <- 1 - surv_summary_test$surv
+                } else if (n_pred == 1) {
+                  # Single prediction for all test cases
+                  test_predictions <- rep(1 - surv_summary_test$surv, n_test)
+                } else {
+                  # Mismatch - use the first prediction for all
+                  test_predictions <- rep(1 - surv_summary_test$surv[1], n_test)
+                }
+              }
+              
+              # Convert to binary predictions (threshold = 0.5)
+              binary_predictions <- ifelse(test_predictions > 0.5, 1, 0)
+              
+              # Get true labels based on recidivism definition
+              recidivism_response_var <- case_when(
+                universe$define_recid == "1yr" ~ "RECID_1",
+                universe$define_recid == "2yr" ~ "RECID_2",
+                universe$define_recid == "3yr" ~ "RECID_3",
+                universe$define_recid == "4yr" ~ "RECID_4",
+                universe$define_recid == "5yr" ~ "RECID_5"
+              )
+              true_labels <- test_processed[[recidivism_response_var]]
+              
+              # Ensure all vectors have the same length
+              min_length <- min(length(binary_predictions), length(true_labels))
+              binary_predictions <- binary_predictions[1:min_length]
+              true_labels <- true_labels[1:min_length]
+              test_predictions <- test_predictions[1:min_length]
+              
+              # Calculate accuracy
+              accuracy_result <- mean(binary_predictions == true_labels, na.rm = TRUE)
+              
+              # Calculate AUC
+              auc_result <- tryCatch({
+                roc_obj <- ROCR::prediction(test_predictions, true_labels)
+                ROCR::performance(roc_obj, "auc")@y.values[[1]]
+              }, error = function(e) NA)
+              
+            }, error = function(e) {
+              cat("     Error in survival model evaluation:", conditionMessage(e), "\n")
+            })
+          }
+          
+        } else if (universe$model == "logistic") {
+          # For logistic models
+          if (exists("logistic_model") && !is.null(logistic_model)) {
+            tryCatch({
+              test_predictions <- predict(logistic_model, newdata = test_processed, type = "response")
+              binary_predictions <- ifelse(test_predictions > 0.5, 1, 0)
+              
+              # Get true labels based on recidivism definition
+              recidivism_response_var <- case_when(
+                universe$define_recid == "1yr" ~ "RECID_1",
+                universe$define_recid == "2yr" ~ "RECID_2",
+                universe$define_recid == "3yr" ~ "RECID_3",
+                universe$define_recid == "4yr" ~ "RECID_4",
+                universe$define_recid == "5yr" ~ "RECID_5"
+              )
+              true_labels <- test_processed[[recidivism_response_var]]
+              
+              # Calculate accuracy
+              accuracy_result <- mean(binary_predictions == true_labels, na.rm = TRUE)
+              
+              # Calculate AUC
+              auc_result <- tryCatch({
+                roc_obj <- ROCR::prediction(test_predictions, true_labels)
+                ROCR::performance(roc_obj, "auc")@y.values[[1]]
+              }, error = function(e) NA)
+              
+            }, error = function(e) {
+              cat("     Error in logistic model evaluation:", conditionMessage(e), "\n")
+            })
+          }
+        }
+      }
+      
+      cat("     Test Accuracy:", round(accuracy_result, 4), "| AUC:", round(auc_result, 4), "\n")
+    }
+    
     cat(result_prob)
     universes_part2$recidivism_prob[i] <- result_prob
+    universes_part2$accuracy[i] <- accuracy_result
+    universes_part2$auc[i] <- auc_result
   }
+  
+  # Write completion message
+  write(paste("Part 2 completed: Processed", num_universes_part2, "of", max_universes_per_part * 3, "total sampled universes"), file = "progress_nc_garden.txt", append = TRUE)
+  cat("Part 2 completed: Processed", num_universes_part2, "of", max_universes_per_part * 3, "total sampled universes\n")
+  
   # Save the results of Part 2 to a file
   save(universes_part2, file = "results_part2.RData")
   
@@ -753,7 +1107,7 @@ generate_nc_garden_part2 <- function(data, scaling_parameters, convert_followup_
 }
 
 # ======== NC Combinations Part 3 =======
-generate_nc_garden_part3 <- function(data, scaling_parameters, convert_followup_parameters, age_category_parameters, split_parameters, imbalancing_parameters, model_parameters, predictor_parameters, define_recid_parameters, profile_age = 25, profile_gender = "male", profile_race = "caucasian") {
+generate_nc_garden_part3 <- function(data, scaling_parameters, convert_followup_parameters, age_category_parameters, split_parameters, imbalancing_parameters, model_parameters, predictor_parameters, define_recid_parameters, profile_age = 25, profile_gender = "male", profile_race = "caucasian", max_universes_per_part = 500) {
   
   # each row in the resulting data frame will be a unique "universe."
   all_universes <- expand.grid(
@@ -769,6 +1123,7 @@ generate_nc_garden_part3 <- function(data, scaling_parameters, convert_followup_
   )
   
   # Profile base - use parameters passed from Python
+  cat("DEBUG Part 3: Profile parameters received - age:", profile_age, "gender:", profile_gender, "race:", profile_race, "\n")
   high_risk_base <- list(
     AGE = profile_age * 12, # Convert years to months
     TSERVD = 100,
@@ -786,10 +1141,17 @@ generate_nc_garden_part3 <- function(data, scaling_parameters, convert_followup_
     PERSON = 0,
     SUPER = 1
   )
+  cat("DEBUG Part 3: High risk base created - AGE:", high_risk_base$AGE, "MALE:", high_risk_base$MALE, "WHITE:", high_risk_base$WHITE, "\n")
   
   # initialize a new column to store the results.
   all_universes$recidivism_prob <- NA
-  universes_part3 <- all_universes[6001:9600, ]
+  all_universes$accuracy <- NA
+  all_universes$auc <- NA
+  
+  # Randomly sample universes from Part 3 (indices 6001-9600)
+  set.seed(44)  # Different seed for Part 3
+  part3_indices <- sample(6001:9600, size = min(max_universes_per_part, 3600), replace = FALSE)
+  universes_part3 <- all_universes[part3_indices, ]
   num_universes_part3 <- nrow(universes_part3)
   
   # Loop through each universe and perform the analysis
@@ -812,8 +1174,9 @@ generate_nc_garden_part3 <- function(data, scaling_parameters, convert_followup_
     # Progress update every 25 universes - write to file for Python to read
     if (i %% 25 == 0 || i == num_universes_part3) {
       progress_file <- "progress_nc_garden.txt"
-      write(paste("Universe", i + 6000, "of", 9600, "completed"), file = progress_file, append = FALSE)
-      cat("PROGRESS_UPDATE: Universe", i + 6000, "of", 9600, "completed\n")
+      total_universes <- max_universes_per_part * 3  # Part1 + Part2 + Part3
+      write(paste("Universe", i + (max_universes_per_part * 2), "of", total_universes, "completed (sampled from", nrow(all_universes), "total universes)"), file = progress_file, append = FALSE)
+      cat("PROGRESS_UPDATE: Universe", i + (max_universes_per_part * 2), "of", total_universes, "completed (sampled from", nrow(all_universes), "total universes)\n")
     }
     
     current_data <- data
@@ -1033,11 +1396,18 @@ generate_nc_garden_part3 <- function(data, scaling_parameters, convert_followup_
     }
     
     # After filtering, check for and remove constant variables
-    constant_vars <- sapply(analysis_1978[, model_vars], function(x) length(unique(x[!is.na(x)])) <= 1)
-    model_vars <- model_vars[!constant_vars]
+    if (length(model_vars) > 0) {
+      constant_vars <- sapply(analysis_1978[, model_vars, drop = FALSE], function(x) length(unique(x[!is.na(x)])) <= 1)
+      model_vars <- model_vars[!constant_vars]
+    }
     
     # Rebuild the predictor string from the corrected model_vars
     predictor_string <- paste(model_vars, collapse = " + ")
+    
+    # Ensure we have at least one predictor
+    if (nchar(trimws(predictor_string)) == 0 || length(model_vars) == 0) {
+      predictor_string <- "1" # Intercept-only model
+    }
     
     # =============  MODEL ==============
     if (universe$model == "survival") {
@@ -1103,9 +1473,157 @@ generate_nc_garden_part3 <- function(data, scaling_parameters, convert_followup_
       # Predict the recidivism probability for the high-risk profile
       result_prob <- predict(logistic_model, newdata = high_risk, type = "response")
     }
+    
+    # ================= Model Evaluation on Test Set =================
+    accuracy_result <- NA
+    auc_result <- NA
+    
+    if (!is.na(result_prob)) {
+      cat("     Evaluating model on test set...\n")
+      
+      # Apply the same preprocessing to test set
+      test_processed <- validation_1978
+      
+      # Apply the same factor level synchronization
+      if (length(model_vars) > 0) {
+        test_processed <- droplevels(test_processed)
+        
+        # Update gender_factor in test set if it was removed due to "only" filtering
+        if (universe$imbalancing %in% c("male only", "female only")) {
+          test_processed$MALE <- droplevels(as.factor(test_processed$MALE), exclude = if (universe$imbalancing == "male only") {0} else {1})
+        }
+      }
+      
+      # Debug: Check test set size after factor alignment
+      cat(paste0("     DEBUG: Test set size after factor alignment: ", nrow(test_processed), "\n"))
+      
+      if (nrow(test_processed) == 0) {
+        cat("     WARNING: Test set is empty after factor alignment. Skipping evaluation.\n")
+        accuracy_result <- NA
+        auc_result <- NA
+      } else {
+        if (universe$model == "survival") {
+          # For survival models, we need to predict survival probability
+          if (exists("cox_model") && !is.null(cox_model)) {
+            tryCatch({
+              # Predict survival probability at the time point
+              surv_pred_test <- survfit(cox_model, newdata = test_processed)
+              
+              # Calculate recidivism probability for each test case
+              time_point <- case_when(
+                universe$define_recid == "1yr" ~ 12,
+                universe$define_recid == "2yr" ~ 24,
+                universe$define_recid == "3yr" ~ 36,
+                universe$define_recid == "4yr" ~ 48,
+                universe$define_recid == "5yr" ~ 60
+              )
+              
+              # Get survival probability at the time point
+              surv_summary_test <- summary(surv_pred_test, times = time_point)
+              
+              if (is.null(surv_summary_test$surv) || length(surv_summary_test$surv) == 0) {
+                # Fallback: get the last survival probability
+                last_surv <- summary(surv_pred_test)$surv
+                if (length(last_surv) > 0) {
+                  test_predictions <- rep(1 - last_surv[length(last_surv)], nrow(test_processed))
+                } else {
+                  test_predictions <- rep(NA, nrow(test_processed))
+                }
+              } else {
+                # Ensure we have the right number of predictions
+                n_test <- nrow(test_processed)
+                n_pred <- length(surv_summary_test$surv)
+                
+                if (n_pred == n_test) {
+                  test_predictions <- 1 - surv_summary_test$surv
+                } else if (n_pred == 1) {
+                  # Single prediction for all test cases
+                  test_predictions <- rep(1 - surv_summary_test$surv, n_test)
+                } else {
+                  # Mismatch - use the first prediction for all
+                  test_predictions <- rep(1 - surv_summary_test$surv[1], n_test)
+                }
+              }
+              
+              # Convert to binary predictions (threshold = 0.5)
+              binary_predictions <- ifelse(test_predictions > 0.5, 1, 0)
+              
+              # Get true labels based on recidivism definition
+              recidivism_response_var <- case_when(
+                universe$define_recid == "1yr" ~ "RECID_1",
+                universe$define_recid == "2yr" ~ "RECID_2",
+                universe$define_recid == "3yr" ~ "RECID_3",
+                universe$define_recid == "4yr" ~ "RECID_4",
+                universe$define_recid == "5yr" ~ "RECID_5"
+              )
+              true_labels <- test_processed[[recidivism_response_var]]
+              
+              # Ensure all vectors have the same length
+              min_length <- min(length(binary_predictions), length(true_labels))
+              binary_predictions <- binary_predictions[1:min_length]
+              true_labels <- true_labels[1:min_length]
+              test_predictions <- test_predictions[1:min_length]
+              
+              # Calculate accuracy
+              accuracy_result <- mean(binary_predictions == true_labels, na.rm = TRUE)
+              
+              # Calculate AUC
+              auc_result <- tryCatch({
+                roc_obj <- ROCR::prediction(test_predictions, true_labels)
+                ROCR::performance(roc_obj, "auc")@y.values[[1]]
+              }, error = function(e) NA)
+              
+            }, error = function(e) {
+              cat("     Error in survival model evaluation:", conditionMessage(e), "\n")
+            })
+          }
+          
+        } else if (universe$model == "logistic") {
+          # For logistic models
+          if (exists("logistic_model") && !is.null(logistic_model)) {
+            tryCatch({
+              test_predictions <- predict(logistic_model, newdata = test_processed, type = "response")
+              binary_predictions <- ifelse(test_predictions > 0.5, 1, 0)
+              
+              # Get true labels based on recidivism definition
+              recidivism_response_var <- case_when(
+                universe$define_recid == "1yr" ~ "RECID_1",
+                universe$define_recid == "2yr" ~ "RECID_2",
+                universe$define_recid == "3yr" ~ "RECID_3",
+                universe$define_recid == "4yr" ~ "RECID_4",
+                universe$define_recid == "5yr" ~ "RECID_5"
+              )
+              true_labels <- test_processed[[recidivism_response_var]]
+              
+              # Calculate accuracy
+              accuracy_result <- mean(binary_predictions == true_labels, na.rm = TRUE)
+              
+              # Calculate AUC
+              auc_result <- tryCatch({
+                roc_obj <- ROCR::prediction(test_predictions, true_labels)
+                ROCR::performance(roc_obj, "auc")@y.values[[1]]
+              }, error = function(e) NA)
+              
+            }, error = function(e) {
+              cat("     Error in logistic model evaluation:", conditionMessage(e), "\n")
+            })
+          }
+        }
+      }
+      
+      cat("     Test Accuracy:", round(accuracy_result, 4), "| AUC:", round(auc_result, 4), "\n")
+    }
+    
     cat(result_prob)
     universes_part3$recidivism_prob[i] <- result_prob
+    universes_part3$accuracy[i] <- accuracy_result
+    universes_part3$auc[i] <- auc_result
   }
+  
+  # Write completion message
+  write(paste("Part 3 completed: Processed", num_universes_part3, "of", max_universes_per_part * 3, "total sampled universes"), file = "progress_nc_garden.txt", append = TRUE)
+  cat("Part 3 completed: Processed", num_universes_part3, "of", max_universes_per_part * 3, "total sampled universes\n")
+  
   # Save the results of Part 3 to a file
   save(universes_part3, file = "results_part3.RData")
   
